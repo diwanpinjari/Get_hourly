@@ -1,0 +1,1333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Faculty Hourly Attendance Portal</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/common.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+
+    <!-- LOGIN SCREEN -->
+    <div id="loginScreen" class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-xl w-full max-w-md border border-slate-200">
+            <div class="text-center mb-6">
+                <h2 class="text-2xl font-black text-slate-800">Faculty Portal Login</h2>
+                <p class="text-xs text-slate-500 mt-1">College Hourly Attendance System</p>
+            </div>
+            <div class="mb-4">
+                <label class="block text-xs font-bold text-slate-700 mb-1">Faculty ID</label>
+                <input type="text" id="facId" placeholder="e.g. FAC101" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="mb-6">
+                <label class="block text-xs font-bold text-slate-700 mb-1">Password</label>
+                <input type="password" id="facPass" placeholder="••••••••" class="w-full border border-slate-300 rounded-lg p-2.5 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <!-- SIGN IN BUTTON -->
+            <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white py-3 rounded-lg font-bold text-sm transition shadow-md">Sign In</button>
+
+            <!-- INSERT HERE: LINK TO ADMIN PORTAL -->
+            <div class="mt-5 text-center border-t border-slate-100 pt-3">
+                <a href="/admin" class="text-xs font-bold text-slate-400 hover:text-slate-700 transition">
+                    🛡️ College Administration &amp; Management Portal &rarr;
+                </a>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- MAIN DASHBOARD -->
+    <div id="dashboardScreen" class="hidden max-w-7xl mx-auto p-4 md:p-6">
+        <div class="bg-white p-6 rounded-2xl shadow-md border border-slate-200">
+
+            <!-- HEADER BAR -->
+            <div class="flex flex-wrap justify-between items-center border-b pb-4 mb-6 gap-2">
+                <div>
+                    <h1 class="text-2xl font-black text-slate-800">Faculty Attendance Portal</h1>
+                    <p class="text-xs font-bold text-blue-600 mt-0.5" id="facGreeting">Faculty Session</p>
+                </div>
+                <button onclick="logoutFaculty()" class="text-xs font-bold bg-slate-200 text-slate-700 hover:bg-slate-300 px-4 py-2 rounded-lg transition">Logout</button>
+            </div>
+
+            <!-- TAB CONTROLS: MARKING VS HISTORY MODE -->
+            <div class="flex gap-3 border-b border-slate-200 mb-6">
+                <button onclick="switchFacultyView('marking')" id="tabBtnMarking" class="text-xs font-extrabold pb-3 px-3 border-b-2 border-blue-600 text-blue-600 transition">
+                    📝 Mark Today's Attendance
+                </button>
+                <button onclick="switchFacultyView('history')" id="tabBtnHistory" class="text-xs font-bold pb-3 px-3 text-slate-500 hover:text-slate-800 transition flex items-center gap-1.5">
+                    📋 Previous Sessions & History Mode
+                </button>
+            </div>
+
+            <!-- VIEW 1: MARKING ATTENDANCE -->
+            <div id="viewMarking">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Course / Branch</label>
+                        <select id="branchSelect" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-slate-50 focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Department</label>
+                        <select id="deptSelect" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-slate-50 focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Batch Year</label>
+                        <select id="batchYearSelect" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-slate-50 focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 mb-1">Section</label>
+                        <select id="secSelect" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-bold bg-blue-50 text-blue-900 focus:ring-2 focus:ring-blue-500"></select>
+                    </div>
+                </div>
+
+                <button onclick="loadDailyProgress()" class="w-full bg-blue-700 hover:bg-blue-800 text-white py-3 rounded-xl text-xs font-bold transition mb-6 shadow-md">
+                    Load Today's Hourly Progress Schedule ➔
+                </button>
+
+                <div id="progressArea" class="hidden mb-8">
+                    <h3 class="font-extrabold text-sm text-slate-800 mb-3 flex items-center gap-2">
+                        <span>📅 Today's Hourly Progress</span>
+                        <span id="dateBadge" class="text-xs font-mono bg-slate-100 px-2 py-0.5 rounded border text-slate-600"></span>
+                    </h3>
+                    <div id="progressGrid" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"></div>
+                </div>
+
+                <div id="attendanceArea" class="hidden border-t border-slate-200 pt-6">
+                    <div class="bg-blue-50 p-4 rounded-xl border border-blue-200 mb-4 flex flex-wrap justify-between items-center gap-2">
+                        <div>
+                            <h3 class="font-extrabold text-base text-blue-900" id="activeSlotTitle">Hour Slot</h3>
+                            <p class="text-xs text-blue-700 font-semibold" id="activeSlotSubtitle">Class Session</p>
+                        </div>
+                        <div class="w-full md:w-auto">
+                            <label class="block text-xs font-bold text-slate-700 mb-1">Subject Name</label>
+                            <input type="text" id="subjectInput" placeholder="e.g. Operating Systems" class="w-full md:w-64 border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white text-slate-800">
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center justify-between gap-3 bg-slate-100 p-3 rounded-xl border border-slate-200 mb-4">
+                        <span id="studentCount" class="text-xs font-black text-slate-700"></span>
+
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button onclick="markAll('Present')" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition shadow-sm">
+                                ✓ Mark All Present
+                            </button>
+                            <button onclick="markAll('Absent')" class="bg-rose-600 hover:bg-rose-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition shadow-sm">
+                                ✕ Mark All Absent
+                            </button>
+                            <button id="copyBtn" onclick="copyPreviousHour()" class="bg-indigo-600 hover:bg-indigo-700 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition shadow-sm">
+                                📋 Copy Prev Class
+                            </button>
+                            <button onclick="openStudentModal()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg font-bold transition shadow-sm flex items-center gap-1">
+                                👁️ View Students
+                            </button>
+                            <label class="inline-flex items-center cursor-pointer select-none bg-amber-100 border border-amber-300 px-3 py-1.5 rounded-lg">
+                                <input type="checkbox" id="leisureCheck" onchange="toggleLeisureMode()" class="w-4 h-4 text-amber-600 rounded">
+                                <span class="ml-2 text-xs font-bold text-amber-950">Leisure Period</span>
+                            </label>
+                        </div>
+                    </div>
+
+                    <div class="flex flex-wrap items-center gap-6 text-xs font-bold mb-4 px-2">
+                        <span class="flex items-center gap-2">
+                            <span class="w-3.5 h-3.5 rounded-full bg-emerald-500 inline-block shadow-sm"></span> Present
+                        </span>
+                        <span class="flex items-center gap-2">
+                            <span class="w-3.5 h-3.5 rounded-full bg-rose-500 inline-block shadow-sm"></span> Absent
+                        </span>
+                        <span class="flex items-center gap-2">
+                            <span class="w-3.5 h-3.5 rounded-full bg-orange-500 inline-block ring-2 ring-orange-300 shadow-sm"></span> Prev Hour Present ➔ Now Absent
+                        </span>
+                    </div>
+
+                    <div id="studentGrid" class="flex flex-wrap gap-3.5 justify-start p-6 bg-slate-50 rounded-2xl border border-slate-200 shadow-inner min-h-[160px]"></div>
+
+                    <div class="mt-6 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl border-2 border-dashed border-indigo-300">
+                        <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                            <div>
+                                <h4 class="font-black text-sm text-indigo-950 flex items-center gap-2">
+                                    <span>📸 Mandatory Classroom Verification Photo</span>
+                                    <span class="text-[10px] bg-rose-100 text-rose-700 font-extrabold px-2 py-0.5 rounded-full border border-rose-300 uppercase tracking-wider">Required</span>
+                                </h4>
+                                <p class="text-xs text-indigo-700 mt-0.5 font-medium">Capture a real-time classroom photo. The exact timestamp is burned into the photo as a watermark.</p>
+                            </div>
+                            <span id="photoStatusBadge" class="text-xs font-extrabold px-3 py-1 rounded-lg bg-rose-100 text-rose-700 border border-rose-200">
+                                ✕ Photo Required
+                            </span>
+                        </div>
+
+                        <div class="flex flex-col sm:flex-row items-center gap-4">
+                            <div id="cameraViewContainer" class="hidden relative w-full sm:w-64 h-48 bg-black rounded-xl overflow-hidden shadow-md">
+                                <video id="videoFeed" autoplay playsinline class="w-full h-full object-cover"></video>
+                                <button onclick="snapPhotoFromStream()" class="absolute bottom-2 left-1/2 -translate-x-1/2 bg-rose-600 hover:bg-rose-700 text-white font-extrabold text-xs px-4 py-1.5 rounded-full shadow-lg transition">
+                                    ⚪ Capture Now
+                                </button>
+                            </div>
+
+                            <div id="photoPreviewContainer" class="hidden relative w-full sm:w-64 h-48 rounded-xl overflow-hidden border-2 border-emerald-500 shadow-md">
+                                <img id="capturedImage" class="w-full h-full object-cover" alt="Classroom Verification">
+                                <span class="absolute top-2 left-2 bg-emerald-600 text-white font-black text-[10px] px-2 py-0.5 rounded shadow">✓ Watermarked</span>
+                            </div>
+
+                            <div class="space-y-2">
+                                <button type="button" onclick="startWebcam()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow flex items-center justify-center gap-2">
+                                    📷 Open Camera
+                                </button>
+
+                                <label class="w-full bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition shadow flex items-center justify-center gap-2 cursor-pointer">
+                                    <span>📱 Device Camera / File</span>
+                                    <input type="file" id="fallbackPhotoInput" accept="image/*" capture="environment" onchange="handleFallbackPhoto(event)" class="hidden">
+                                </label>
+
+                                <button id="retakeBtn" type="button" onclick="retakePhoto()" class="hidden w-full bg-rose-100 hover:bg-rose-200 text-rose-700 text-xs font-bold px-4 py-2 rounded-xl transition">
+                                    🔄 Retake Photo
+                                </button>
+                            </div>
+                        </div>
+                        <canvas id="snapshotCanvas" class="hidden"></canvas>
+                    </div>
+
+                    <button id="submitBtn" disabled onclick="submitAttendance()" class="w-full mt-6 bg-slate-300 text-slate-500 py-3.5 rounded-xl font-extrabold text-sm transition shadow flex justify-center items-center gap-2 cursor-not-allowed">
+                        🔒 Capture Classroom Photo to Enable Submission
+                    </button>
+                </div>
+            </div>
+
+            <!-- VIEW 2: CLEANED FACULTY HISTORY (SECTION & HOUR FILTER REQUIRED FOR STATS) -->
+            <div id="viewHistory" class="hidden space-y-6">
+
+                <!-- FILTER BAR (FLOW: COURSE -> DEPT -> SECTION -> HOUR -> DATES) -->
+                <div class="bg-slate-50 p-4 rounded-2xl border border-slate-200 shadow-sm">
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <div>
+                            <h4 class="font-black text-xs text-slate-800 uppercase tracking-wider">
+                                🔍 Filter Previous Sessions
+                            </h4>
+                            <p class="text-[11px] text-slate-500 mt-0.5">
+                                 Select <b>Course</b> &rarr; <b>Department</b> &rarr; <b>Section</b> and an <b>Hour Slot</b> to unlock detailed stats.
+                            </p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <button onclick="resetHistoryFilters()" class="text-[11px] font-bold text-slate-600 hover:text-slate-900 bg-white border border-slate-300 px-3 py-1.5 rounded-lg transition shadow-sm">
+                                Reset Filters
+                            </button>
+                            <button onclick="exportHistoryCsv()" class="text-[11px] font-bold text-emerald-700 hover:text-emerald-800 bg-emerald-50 border border-emerald-300 px-3 py-1.5 rounded-lg transition shadow-sm">
+                                📊 Export CSV
+                            </button>
+                            <button onclick="downloadConsolidatedAuditPdf()" class="text-[11px] font-bold text-blue-700 hover:text-blue-800 bg-blue-50 border border-blue-300 px-3 py-1.5 rounded-lg transition shadow-sm">
+                                📑 Date-Range Audit PDF
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+                        <!-- 1. Course -->
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">1. Course</label>
+                            <select id="histBranchSelect" onchange="onHistCourseChange()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                        </div>
+                        <!-- 2. Department -->
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">2. Department</label>
+                            <select id="histDeptSelect" onchange="onHistDeptChange()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white">
+                                <option value="">Select Course First</option>
+                            </select>
+                        </div>
+                        <!-- 3. Section (Strictly unlocked after Department) -->
+                        <div>
+                            <label class="block text-[11px] font-bold text-blue-900 mb-1">3. Section *</label>
+                            <select id="histSecSelect" disabled onchange="loadFacultyHistory()" class="w-full border border-blue-300 rounded-lg p-2 text-xs font-bold bg-blue-50/50 text-blue-900 disabled:opacity-50 disabled:cursor-not-allowed">
+                                <option value="">Select Dept First</option>
+                            </select>
+                        </div>
+                        <!-- 4. Hour Slot -->
+                        <div>
+                            <label class="block text-[11px] font-bold text-blue-900 mb-1">4. Hour Slot *</label>
+                            <select id="histHourSlot" onchange="loadFacultyHistory()" class="w-full border border-blue-300 rounded-lg p-2 text-xs font-bold bg-blue-50/50 text-blue-900">
+                                <option value="">All Hours</option>
+                                <option value="Hour 1">Hour 1</option>
+                                <option value="Hour 2">Hour 2</option>
+                                <option value="Hour 3">Hour 3</option>
+                                <option value="Hour 4">Hour 4</option>
+                                <option value="Hour 5">Hour 5</option>
+                                <option value="Hour 6">Hour 6</option>
+                            </select>
+                        </div>
+                        <!-- 5. From Date -->
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">From Date</label>
+                            <input type="date" id="histFromDate" onchange="loadFacultyHistory()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white">
+                        </div>
+                        <!-- 6. To Date -->
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">To Date</label>
+                            <input type="date" id="histToDate" onchange="loadFacultyHistory()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- SESSIONS HISTORY TABLE -->
+                <div class="overflow-x-auto border border-slate-200 rounded-2xl shadow-sm bg-white">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                                <th class="p-3">Date</th>
+                                <th class="p-3">Hour Slot</th>
+                                <th class="p-3">Class & Section</th>
+                                <th class="p-3">Subject Name</th>
+                                <th class="p-3">Recorded Time</th>
+                                <th class="p-3">Attendance Stats</th>
+                                <th class="p-3 text-right">Actions & Dossiers</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody" class="divide-y divide-slate-100">
+                            <tr><td colspan="7" class="p-6 text-center text-slate-400 font-semibold">Loading session history...</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- POST-SUBMISSION LOGOUT OR STAY IN MODAL POPUP -->
+    <div id="postSubmitModal" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200 text-center transform transition-all">
+            <div class="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-4 text-3xl font-black shadow-inner">
+                ✓
+            </div>
+            <h3 class="font-black text-xl text-slate-900" id="postSubmitModalTitle">Attendance Submitted Successfully!</h3>
+            <p class="text-xs text-slate-600 mt-2 mb-6" id="postSubmitModalDesc">
+                Reports have been processed and dispatched. What would you like to do next?
+            </p>
+            <div class="grid grid-cols-2 gap-3">
+                <button onclick="handlePostSubmitLogout()" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-3 rounded-xl transition shadow-md flex items-center justify-center gap-1.5">
+                    🚪 Logout Now
+                </button>
+                <button onclick="handlePostSubmitStayIn()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-3 rounded-xl transition shadow-md flex items-center justify-center gap-1.5">
+                    Stay Signed In ➔
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- HISTORICAL SESSION ROSTER INSPECTION & CORRECTION MODAL -->
+    <div id="sessionRosterModal" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-4xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[88vh]">
+            <div class="bg-slate-900 text-white p-4 flex justify-between items-center">
+                <div>
+                    <h3 class="font-black text-sm tracking-wide" id="rosterModalTitle">Session Attendance Roster</h3>
+                    <p class="text-[11px] text-slate-400 mt-0.5" id="rosterModalSubtitle">Student Presence Verification</p>
+                </div>
+                <button onclick="closeSessionRosterModal()" class="text-slate-400 hover:text-white text-lg font-bold px-2">✕</button>
+            </div>
+
+            <!-- MODAL HEADER STATS -->
+            <div class="bg-slate-50 p-4 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <span id="rosterPresentBadge" class="bg-emerald-100 text-emerald-800 font-black text-xs px-3 py-1 rounded-lg border border-emerald-300">0 Present</span>
+                    <span id="rosterAbsentBadge" class="bg-rose-100 text-rose-800 font-black text-xs px-3 py-1 rounded-lg border border-rose-300">0 Absent</span>
+                    <span id="rosterPctBadge" class="bg-blue-100 text-blue-800 font-black text-xs px-3 py-1 rounded-lg border border-blue-300">0.0% Rate</span>
+                </div>
+                <button onclick="copyAbsenteeRollsFromModal()" class="bg-slate-800 hover:bg-slate-900 text-white text-xs font-bold px-3 py-1.5 rounded-lg transition shadow-sm">
+                    📋 Copy Absent Roll Numbers
+                </button>
+            </div>
+
+            <div class="p-4 overflow-y-auto flex-1">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                            <th class="p-3">Roll Number</th>
+                            <th class="p-3">Student Name</th>
+                            <th class="p-3">Student Phone</th>
+                            <th class="p-3">Parent Phone</th>
+                            <th class="p-3">Current Status</th>
+                            <th class="p-3 text-right">Correct Status</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sessionRosterTableBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+
+            <div class="bg-slate-50 p-3 border-t border-slate-200 text-right">
+                <button onclick="closeSessionRosterModal()" class="bg-slate-700 text-white text-xs px-5 py-2 rounded-lg font-bold hover:bg-slate-800 transition">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- STUDENT CONTACT DETAILS MODAL -->
+    <div id="studentModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-3xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+            <div class="bg-slate-800 text-white p-4 flex justify-between items-center">
+                <h3 class="font-bold text-sm tracking-wide">Class Roster - Student Details</h3>
+                <button onclick="closeStudentModal()" class="text-slate-400 hover:text-white text-lg font-bold px-2">✕</button>
+            </div>
+
+            <div class="p-4 overflow-y-auto flex-1">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 font-bold border-b border-slate-200">
+                            <th class="p-3">Roll Number</th>
+                            <th class="p-3">Student Name</th>
+                            <th class="p-3">Student Phone</th>
+                            <th class="p-3">Parent Phone</th>
+                        </tr>
+                    </thead>
+                    <tbody id="studentTableBody" class="divide-y divide-slate-100"></tbody>
+                </table>
+            </div>
+
+            <div class="bg-slate-50 p-3 border-t border-slate-200 text-right">
+                <button onclick="closeStudentModal()" class="bg-slate-700 text-white text-xs px-4 py-2 rounded-lg font-bold hover:bg-slate-800 transition">
+                    Close
+                </button>
+            </div>
+        </div>
+    </div>
+<!-- MODERN ANIMATED DISPATCH STATUS MODAL -->
+<div id="statusModalOverlay" class="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 transition-all duration-300">
+    <div class="bg-white max-w-sm w-full rounded-2xl p-6 text-center shadow-2xl border border-slate-100 transform transition-all scale-100">
+        <!-- Dynamic Icon / Spinner Container -->
+        <div id="statusModalIcon" class="w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center transition-all">
+            <div id="statusSpinner" class="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+            <span id="statusSuccessIcon" class="hidden text-2xl font-black text-emerald-600">✓</span>
+            <span id="statusErrorIcon" class="hidden text-2xl font-black text-rose-600">✕</span>
+        </div>
+
+        <!-- Dynamic Message -->
+        <h3 id="statusModalTitle" class="text-sm font-black text-slate-900 mb-1 tracking-tight">Acquiring Location...</h3>
+        <p id="statusModalDesc" class="text-xs font-semibold text-slate-500 leading-relaxed mb-4">Please wait while your GPS coordinates are locked.</p>
+
+        <!-- Dynamic Action Buttons -->
+        <div id="statusModalActions" class="hidden">
+            <button id="statusModalBtn" onclick="closeStatusModal()" class="w-full py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-black transition shadow-md">
+                Dismiss
+            </button>
+        </div>
+    </div>
+</div>
+    <script>
+        let loggedInFaculty = null;
+        let currentStudents = [];
+        let prevHourMap = {};
+        let activeSelectedSlot = null;
+        let capturedClassroomPhotoBase64 = null;
+        let activeWebcamStream = null;
+        let currentSessionRosterData = [];
+        let facultyHistoryCache = [];
+        let activeModalSessionParams = null;
+        let activeClassDetails = null;
+        let activeAttendanceDate = null;
+
+        window.onload = function() {
+            document.getElementById('branchSelect').onchange = onCourseChange;
+            document.getElementById('deptSelect').onchange = updateSectionsDropdown;
+            document.getElementById('batchYearSelect').onchange = updateSectionsDropdown;
+            document.getElementById('secSelect').onchange = () => {
+                document.getElementById('progressArea').classList.add('hidden');
+                document.getElementById('attendanceArea').classList.add('hidden');
+                activeClassDetails = null;
+            };
+        };
+        // Actively triggers the browser's "Allow Location" popup and waits for your answer
+function getDeviceCoordinates() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            return reject(new Error("Your browser does not support Geolocation."));
+        }
+
+        console.log("Requesting GPS from browser...");
+        navigator.geolocation.getCurrentPosition(
+            (pos) => {
+                console.log("GPS Lock Acquired:", pos.coords.latitude, pos.coords.longitude);
+                resolve({
+                    latitude: pos.coords.latitude,
+                    longitude: pos.coords.longitude,
+                    accuracy: pos.coords.accuracy
+                });
+            },
+            (err) => {
+                console.warn("Geolocation Error Code:", err.code, err.message);
+                let msg = "Could not obtain location.";
+                if (err.code === 1) {
+                    msg = "Location permission denied. Click the lock/tune icon next to localhost:3000 and select 'Allow'.";
+                } else if (err.code === 2) {
+                    msg = "Position unavailable. Please ensure Windows Location Services are turned ON in Windows Settings.";
+                } else if (err.code === 3) {
+                    msg = "Location request timed out. Please click Submit again.";
+                }
+                reject(new Error(msg));
+            },
+            {
+                enableHighAccuracy: false, // Set to false to allow quick Wi-Fi/IP location on PC
+                timeout: 8000,
+                maximumAge: 0
+            }
+        );
+    });
+}
+        async function login() {
+            const faculty_id = document.getElementById('facId').value.trim();
+            const password = document.getElementById('facPass').value.trim();
+
+            const res = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ faculty_id, password })
+            });
+            const data = await res.json();
+            if (data.success) {
+                loggedInFaculty = data.faculty;
+                document.getElementById('facGreeting').innerText = `Faculty: ${loggedInFaculty.name} (${loggedInFaculty.id})`;
+                document.getElementById('loginScreen').classList.add('hidden');
+                document.getElementById('dashboardScreen').classList.remove('hidden');
+                await loadMetadata();
+            } else {
+                alert(data.message);
+            }
+        }
+
+        async function logoutFaculty() {
+            await fetch('/api/logout', { method: 'POST' });
+            if (activeWebcamStream) {
+                activeWebcamStream.getTracks().forEach(track => track.stop());
+                activeWebcamStream = null;
+            }
+            loggedInFaculty = null;
+            document.getElementById('facId').value = '';
+            document.getElementById('facPass').value = '';
+            document.getElementById('dashboardScreen').classList.add('hidden');
+            document.getElementById('postSubmitModal').classList.add('hidden');
+            document.getElementById('loginScreen').classList.remove('hidden');
+        }
+
+        function switchFacultyView(view) {
+            const btnMarking = document.getElementById('tabBtnMarking');
+            const btnHistory = document.getElementById('tabBtnHistory');
+            const viewMarking = document.getElementById('viewMarking');
+            const viewHistory = document.getElementById('viewHistory');
+
+            if (view === 'marking') {
+                btnMarking.className = "text-xs font-extrabold pb-3 px-3 border-b-2 border-blue-600 text-blue-600 transition";
+                btnHistory.className = "text-xs font-bold pb-3 px-3 text-slate-500 hover:text-slate-800 transition flex items-center gap-1.5";
+                viewMarking.classList.remove('hidden');
+                viewHistory.classList.add('hidden');
+            } else {
+                btnHistory.className = "text-xs font-extrabold pb-3 px-3 border-b-2 border-blue-600 text-blue-600 transition flex items-center gap-1.5";
+                btnMarking.className = "text-xs font-bold pb-3 px-3 text-slate-500 hover:text-slate-800 transition";
+                viewMarking.classList.add('hidden');
+                viewHistory.classList.remove('hidden');
+                initHistoryFilters();
+                loadFacultyHistory();
+            }
+        }
+
+        async function loadMetadata() {
+            const res = await fetch('/api/metadata');
+            const data = await res.json();
+            populateDropdown('branchSelect', data.branches, 'id', 'name');
+            populateDropdown('histBranchSelect', [{ id: '', name: 'All Courses' }, ...data.branches], 'id', 'name');
+            await onCourseChange();
+        }
+
+        async function onCourseChange() {
+            const branch_id = document.getElementById('branchSelect').value;
+            if (!branch_id) return;
+
+            const dRes = await fetch(`/api/departments?branch_id=${branch_id}`);
+            const depts = await dRes.json();
+            populateDropdown('deptSelect', depts, 'id', 'name');
+
+            const bRes = await fetch(`/api/batch-years?branch_id=${branch_id}`);
+            const batchYears = await bRes.json();
+            populateDropdown('batchYearSelect', batchYears, 'id', 'name');
+
+            await updateSectionsDropdown();
+        }
+
+        async function updateSectionsDropdown() {
+            activeClassDetails = null;
+            document.getElementById('progressArea').classList.add('hidden');
+            document.getElementById('attendanceArea').classList.add('hidden');
+            const branch_id = document.getElementById('branchSelect').value;
+            const dept_id = document.getElementById('deptSelect').value;
+            const batch_year_id = document.getElementById('batchYearSelect').value;
+            const secSelect = document.getElementById('secSelect');
+            secSelect.innerHTML = '';
+
+            if (!branch_id || !dept_id || !batch_year_id) return;
+
+            const res = await fetch(`/api/sections?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}`);
+            const sections = await res.json();
+
+            if (sections.length === 0) {
+                secSelect.innerHTML = `<option value="">No Sections Found</option>`;
+                return;
+            }
+
+            sections.forEach(s => secSelect.add(new Option('Sec-' + s.name, s.id)));
+        }
+
+        function populateDropdown(id, items, vKey, lKey, prefix = '') {
+            const el = document.getElementById(id);
+            el.innerHTML = '';
+            items.forEach(i => el.add(new Option(prefix + i[lKey], i[vKey])));
+        }
+
+        async function loadDailyProgress() {
+            const branch_id = document.getElementById('branchSelect').value;
+            const dept_id = document.getElementById('deptSelect').value;
+            const batch_year_id = document.getElementById('batchYearSelect').value;
+            const section_id = document.getElementById('secSelect').value;
+            const todayStr = attendanceDate();
+
+            if (!section_id) return alert("Select a valid section.");
+
+            document.getElementById('dateBadge').innerText = todayStr;
+
+            const res = await fetch(`/api/faculty/daily-progress?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}&section_id=${section_id}&date=${todayStr}`);
+            const progress = await res.json();
+
+            const grid = document.getElementById('progressGrid');
+            grid.innerHTML = '';
+
+            progress.forEach(p => {
+                const isSubmitted = p.status === 'Submitted';
+                const isSubmittedByMe = isSubmitted && p.faculty_id === loggedInFaculty.id;
+                const isLockedOther = isSubmitted && !isSubmittedByMe;
+
+                let cardBg = "bg-slate-50 border-slate-200";
+                let badgeHTML = `<span class="bg-slate-200 text-slate-700 text-[10px] font-extrabold px-2 py-0.5 rounded">Pending</span>`;
+                let actionBtn = `<button onclick="startAttendance('${p.slot}')" class="w-full mt-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 rounded-lg transition shadow-sm">Take Attendance Now ➔</button>`;
+
+                if (isSubmittedByMe) {
+                    cardBg = "bg-emerald-50/60 border-emerald-300";
+                    badgeHTML = `<span class="bg-emerald-600 text-white text-[10px] font-extrabold px-2 py-0.5 rounded">Logged (${p.submission_time})</span>`;
+                    actionBtn = `
+                        <div class="flex gap-2 mt-3">
+                            <button onclick="startAttendance('${p.slot}')" class="w-1/2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs py-2 rounded-lg transition shadow-sm">Edit My Entry ✎</button>
+                            <button onclick="downloadHourPdf('${branch_id}', '${dept_id}', '${batch_year_id}', '${section_id}', '${todayStr}', '${p.slot}')" class="w-1/2 bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-2 rounded-lg transition shadow-sm flex items-center justify-center gap-1">📄 PDF</button>
+                        </div>
+                    `;
+                } else if (isLockedOther) {
+                    cardBg = "bg-amber-50/70 border-amber-200";
+                    badgeHTML = `<span class="bg-amber-700 text-white text-[10px] font-extrabold px-2 py-0.5 rounded">Locked 🔒</span>`;
+                    actionBtn = `<button disabled class="w-full mt-3 bg-slate-300 text-slate-500 font-bold text-xs py-2 rounded-lg cursor-not-allowed">Submitted by ${escapeHtml(p.faculty_name)}</button>`;
+                }
+
+                grid.innerHTML += `
+                    <div class="border rounded-xl p-4 ${cardBg} shadow-sm flex flex-col justify-between">
+                        <div>
+                            <div class="flex justify-between items-center mb-2">
+                                <span class="font-extrabold text-sm text-slate-800">${p.slot}</span>
+                                ${badgeHTML}
+                            </div>
+                            ${isSubmitted ? `<p class="text-xs font-bold text-slate-800">Subject: ${escapeHtml(p.subject_name)}</p><p class="text-[11px] font-semibold text-slate-500">By: ${escapeHtml(p.faculty_name)} (${escapeHtml(p.faculty_id)})</p>` : `<p class="text-xs text-slate-400 italic">Not logged yet today.</p>`}
+                        </div>
+                        ${actionBtn}
+                    </div>
+                `;
+            });
+
+            document.getElementById('progressArea').classList.remove('hidden');
+            document.getElementById('attendanceArea').classList.add('hidden');
+        }
+
+        async function startAttendance(hourSlot) {
+            activeSelectedSlot = hourSlot;
+            retakePhoto();
+
+            const branch_id = document.getElementById('branchSelect').value;
+            const dept_id = document.getElementById('deptSelect').value;
+            const batch_year_id = document.getElementById('batchYearSelect').value;
+            const section_id = document.getElementById('secSelect').value;
+            const date = attendanceDate();
+            activeClassDetails = { branch_id, dept_id, batch_year_id, section_id };
+            activeAttendanceDate = date;
+
+            document.getElementById('activeSlotTitle').innerText = `${hourSlot} Attendance Grid`;
+            document.getElementById('activeSlotSubtitle').innerText = `Mark Attendance & Capture Classroom Verification`;
+            document.getElementById('copyBtn').classList.toggle('hidden', hourSlot === 'Hour 1');
+
+            const res = await fetch(`/api/students?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}&section_id=${section_id}&hour_slot=${hourSlot}&date=${date}`);
+            const data = await res.json();
+
+            if (data.alreadySubmitted) {
+                document.getElementById('subjectInput').value = data.existingDetails.subject_name || '';
+            } else {
+                document.getElementById('subjectInput').value = '';
+            }
+
+            prevHourMap = {};
+            const hourMap = { "Hour 2": "Hour 1", "Hour 3": "Hour 2", "Hour 4": "Hour 3", "Hour 5": "Hour 4", "Hour 6": "Hour 5" };
+            if (hourSlot !== 'Hour 1') {
+                const prevHour = hourMap[hourSlot];
+                const prevRes = await fetch(`/api/attendance/previous-hour?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}&section_id=${section_id}&date=${date}&previousHour=${prevHour}`);
+                const prevData = await prevRes.json();
+                if (Array.isArray(prevData)) {
+                    prevData.forEach(r => prevHourMap[r.roll_number] = r.status);
+                }
+            }
+
+            currentStudents = data.students.map(s => ({ ...s, status: s.status || 'Present' }));
+            const isLeisure = currentStudents.length > 0 && currentStudents.every(s => s.status === 'Leisure');
+            document.getElementById('leisureCheck').checked = isLeisure;
+            document.getElementById('subjectInput').disabled = isLeisure;
+            document.getElementById('studentGrid').classList.toggle('opacity-30', isLeisure);
+            document.getElementById('studentGrid').classList.toggle('pointer-events-none', isLeisure);
+            renderGrid();
+            document.getElementById('attendanceArea').classList.remove('hidden');
+            document.getElementById('attendanceArea').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        function renderGrid() {
+            const grid = document.getElementById('studentGrid');
+            grid.innerHTML = '';
+
+            if (currentStudents.length === 0) {
+                grid.innerHTML = `<p class="text-xs font-bold text-slate-400 p-4">No students enrolled in this section.</p>`;
+                document.getElementById('studentCount').innerText = `0 Students Loaded`;
+                return;
+            }
+
+            currentStudents.forEach(s => {
+                const isPresent = s.status === 'Present';
+                const wasPresentInPrev = prevHourMap[s.roll_number] === 'Present';
+                const isPrevPresentNowAbsent = !isPresent && wasPresentInPrev;
+
+                const bubble = document.createElement('div');
+                bubble.onclick = () => {
+                    s.status = s.status === 'Present' ? 'Absent' : 'Present';
+                    renderGrid();
+                };
+
+                let colorClasses = isPresent ? "bg-emerald-500 text-white shadow-emerald-200 hover:bg-emerald-600"
+                                  : (isPrevPresentNowAbsent ? "bg-orange-500 text-white shadow-orange-200 ring-4 ring-orange-300 font-black"
+                                                            : "bg-rose-500 text-white shadow-rose-200 hover:bg-rose-600");
+
+                const displayRoll = s.roll_number.length > 4 ? s.roll_number.slice(-4) : s.roll_number;
+
+                bubble.className = `w-14 h-14 rounded-full flex items-center justify-center font-extrabold text-sm shadow-md transition-all duration-150 transform hover:scale-110 cursor-pointer select-none ${colorClasses}`;
+                bubble.innerText = displayRoll;
+                bubble.title = `Full Roll No: ${s.roll_number} | ${s.name}`;
+                grid.appendChild(bubble);
+            });
+
+            document.getElementById('studentCount').innerText = `${currentStudents.length} Students Loaded`;
+        }
+
+        function markAll(status) {
+            currentStudents.forEach(s => s.status = status);
+            renderGrid();
+        }
+
+        async function copyPreviousHour() {
+            const hourMap = { "Hour 2": "Hour 1", "Hour 3": "Hour 2", "Hour 4": "Hour 3", "Hour 5": "Hour 4", "Hour 6": "Hour 5" };
+            const prevHour = hourMap[activeSelectedSlot];
+
+            const branch_id = document.getElementById('branchSelect').value;
+            const dept_id = document.getElementById('deptSelect').value;
+            const batch_year_id = document.getElementById('batchYearSelect').value;
+            const section_id = document.getElementById('secSelect').value;
+            const date = attendanceDate();
+
+            const res = await fetch(`/api/attendance/previous-hour?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}&section_id=${section_id}&date=${date}&previousHour=${prevHour}`);
+            const prevRecords = await res.json();
+
+            if (!Array.isArray(prevRecords) || prevRecords.length === 0) {
+                return alert(`No submitted records found for ${prevHour} today.`);
+            }
+
+            currentStudents.forEach(s => {
+                const prev = prevRecords.find(r => r.roll_number === s.roll_number);
+                if (prev) s.status = prev.status;
+            });
+
+            renderGrid();
+            alert(`Copied status pattern from ${prevHour}!`);
+        }
+
+        function toggleLeisureMode() {
+            const isLeisure = document.getElementById('leisureCheck').checked;
+            const subjectInput = document.getElementById('subjectInput');
+            const grid = document.getElementById('studentGrid');
+
+            if (isLeisure) {
+                subjectInput.value = "Leisure Period";
+                subjectInput.disabled = true;
+                grid.classList.add('opacity-30', 'pointer-events-none');
+            } else {
+                subjectInput.value = "";
+                subjectInput.disabled = false;
+                grid.classList.remove('opacity-30', 'pointer-events-none');
+                currentStudents.forEach(s => { if (s.status === 'Leisure') s.status = 'Present'; });
+                renderGrid();
+            }
+        }
+
+        function openStudentModal() {
+            if (!currentStudents || currentStudents.length === 0) return alert("Please load students first.");
+            const tbody = document.getElementById('studentTableBody');
+            tbody.innerHTML = '';
+            currentStudents.forEach(s => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50 transition">
+                        <td class="p-3 font-bold font-mono text-blue-600">${escapeHtml(s.roll_number)}</td>
+                        <td class="p-3 font-semibold text-slate-800">${escapeHtml(s.name)}</td>
+                        <td class="p-3 font-mono text-slate-600">${escapeHtml(s.phone_number || 'N/A')}</td>
+                        <td class="p-3 font-mono text-slate-600">${escapeHtml(s.parent_number || 'N/A')}</td>
+                    </tr>
+                `;
+            });
+            document.getElementById('studentModal').classList.remove('hidden');
+        }
+
+        function closeStudentModal() {
+            document.getElementById('studentModal').classList.add('hidden');
+        }
+
+        // CAMERA CAPTURE
+        async function startWebcam() {
+            try {
+                if (activeWebcamStream) activeWebcamStream.getTracks().forEach(track => track.stop());
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+                    audio: false
+                });
+                activeWebcamStream = stream;
+                const video = document.getElementById('videoFeed');
+                video.srcObject = stream;
+                document.getElementById('cameraViewContainer').classList.remove('hidden');
+                document.getElementById('photoPreviewContainer').classList.add('hidden');
+            } catch (err) {
+                alert("Live camera unavailable. Use 'Device Camera / File' button.");
+            }
+        }
+
+        function snapPhotoFromStream() {
+            const video = document.getElementById('videoFeed');
+            const canvas = document.getElementById('snapshotCanvas');
+            canvas.width = video.videoWidth || 640;
+            canvas.height = video.videoHeight || 480;
+
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            burnWatermark(ctx, canvas.width, canvas.height);
+
+            const base64Photo = canvas.toDataURL('image/jpeg', 0.85);
+            setVerifiedPhoto(base64Photo);
+
+            if (activeWebcamStream) {
+                activeWebcamStream.getTracks().forEach(track => track.stop());
+                activeWebcamStream = null;
+            }
+            document.getElementById('cameraViewContainer').classList.add('hidden');
+        }
+
+        function handleFallbackPhoto(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const img = new Image();
+                img.onload = function() {
+                    const canvas = document.getElementById('snapshotCanvas');
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+
+                    burnWatermark(ctx, canvas.width, canvas.height);
+
+                    const base64Photo = canvas.toDataURL('image/jpeg', 0.85);
+                    setVerifiedPhoto(base64Photo);
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function burnWatermark(ctx, width, height) {
+            const now = new Date();
+            const dateStr = now.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+            const timeStr = now.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true });
+
+            const secEl = document.getElementById('secSelect');
+            const secName = secEl.options[secEl.selectedIndex]?.text || '';
+            const watermarkText = `CLASSROOM PROOF | ${activeSelectedSlot} (${secName}) | ${dateStr} - ${timeStr}`;
+
+            const bannerHeight = Math.max(30, Math.floor(height * 0.07));
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.75)';
+            ctx.fillRect(0, height - bannerHeight, width, bannerHeight);
+
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = `bold ${Math.max(12, Math.floor(bannerHeight * 0.45))}px sans-serif`;
+            ctx.fillText(watermarkText, 15, height - (bannerHeight * 0.35));
+        }
+
+        function setVerifiedPhoto(base64Data) {
+            capturedClassroomPhotoBase64 = base64Data;
+            document.getElementById('capturedImage').src = base64Data;
+            document.getElementById('photoPreviewContainer').classList.remove('hidden');
+            document.getElementById('retakeBtn').classList.remove('hidden');
+
+            const badge = document.getElementById('photoStatusBadge');
+            badge.className = "text-xs font-extrabold px-3 py-1 rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300";
+            badge.innerText = "✓ Watermarked & Ready";
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = false;
+            submitBtn.className = "w-full mt-6 bg-emerald-600 hover:bg-emerald-700 text-white py-3.5 rounded-xl font-extrabold text-sm transition shadow-lg flex justify-center items-center gap-2 cursor-pointer";
+            submitBtn.innerHTML = `Submit Hourly Attendance & Dispatch PDF ➔`;
+        }
+
+        function retakePhoto() {
+            capturedClassroomPhotoBase64 = null;
+            document.getElementById('photoPreviewContainer').classList.add('hidden');
+            document.getElementById('retakeBtn').classList.add('hidden');
+            document.getElementById('fallbackPhotoInput').value = '';
+
+            const badge = document.getElementById('photoStatusBadge');
+            badge.className = "text-xs font-extrabold px-3 py-1 rounded-lg bg-rose-100 text-rose-700 border border-rose-200";
+            badge.innerText = "✕ Photo Required";
+
+            const submitBtn = document.getElementById('submitBtn');
+            submitBtn.disabled = true;
+            submitBtn.className = "w-full mt-6 bg-slate-300 text-slate-500 py-3.5 rounded-xl font-extrabold text-sm transition shadow flex justify-center items-center gap-2 cursor-not-allowed";
+            submitBtn.innerHTML = `🔒 Capture Classroom Photo to Enable Submission`;
+
+            if (activeWebcamStream) {
+                activeWebcamStream.getTracks().forEach(track => track.stop());
+                activeWebcamStream = null;
+            }
+            document.getElementById('cameraViewContainer').classList.add('hidden');
+        }
+
+    async function submitAttendance() {
+    if (submitAttendance.pending) return;
+    const subject = document.getElementById('subjectInput').value.trim();
+    if (!subject || !activeSelectedSlot || !activeClassDetails || !currentStudents.length) return alert('Enter a subject and load a class with students.');
+    if (activeAttendanceDate !== attendanceDate()) return alert('The date has changed. Reload today’s attendance before submitting.');
+    submitAttendance.pending = true;
+    try {
+
+    const photoToSend = capturedClassroomPhotoBase64;
+
+    if (!photoToSend) {
+        alert("Classroom verification photo is mandatory. Please capture or upload proof first.");
+        return;
+    }
+
+    // 1. Trigger and await location
+    let locationData = null;
+    try {
+        locationData = await getDeviceCoordinates();
+    } catch (geoErr) {
+        alert(geoErr.message);
+        return;
+    }
+
+
+    // 2. Build payload safely
+    const payload = {
+        facultyId: loggedInFaculty.id,
+        facultyName: loggedInFaculty.name,
+        subjectName: subject,
+        hourSlot: activeSelectedSlot,
+        date: activeAttendanceDate,
+        classDetails: activeClassDetails,
+        attendance: currentStudents.map(s => ({ roll_number: s.roll_number, status: document.getElementById('leisureCheck').checked ? 'Leisure' : (s.status === 'Leisure' ? 'Present' : s.status) })),
+        classroomPhoto: photoToSend,
+        location: locationData
+    };
+
+
+    try {
+        const res = await fetch('/api/attendance/submit', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+        alert(data.message);
+        if (data.success) {
+            await loadDailyProgress();
+            document.getElementById('postSubmitModal').classList.remove('hidden');
+        }
+    } catch (err) {
+        alert("Server communication error: " + err.message);
+    }
+    } finally {
+        submitAttendance.pending = false;
+    }
+}
+        async function handlePostSubmitStayIn() {
+            document.getElementById('postSubmitModal').classList.add('hidden');
+            await loadDailyProgress();
+            document.getElementById('attendanceArea').classList.add('hidden');
+        }
+
+        // =========================================================================
+        // CASCADING HISTORY FILTER LOGIC (SECTION IS LOADED STRICTLY AFTER DEPT)
+        // =========================================================================
+
+        async function initHistoryFilters() {
+            const res = await fetch('/api/metadata');
+            const data = await res.json();
+            populateDropdown('histBranchSelect', [{ id: '', name: 'Select Course' }, ...data.branches], 'id', 'name');
+
+            // Reset Department and Section dropdowns to locked initial states
+            document.getElementById('histDeptSelect').innerHTML = `<option value="">Select Course First</option>`;
+            const secSelect = document.getElementById('histSecSelect');
+            secSelect.innerHTML = `<option value="">Select Dept First</option>`;
+            secSelect.disabled = true;
+        }
+
+        async function onHistCourseChange() {
+            const branch_id = document.getElementById('histBranchSelect').value;
+            const deptSelect = document.getElementById('histDeptSelect');
+            const secSelect = document.getElementById('histSecSelect');
+
+            // Lock section until a specific department is chosen
+            secSelect.innerHTML = `<option value="">Select Dept First</option>`;
+            secSelect.disabled = true;
+
+            if (!branch_id) {
+                deptSelect.innerHTML = `<option value="">Select Course First</option>`;
+                loadFacultyHistory();
+                return;
+            }
+
+            const dRes = await fetch(`/api/departments?branch_id=${branch_id}`);
+            const depts = await dRes.json();
+            populateDropdown('histDeptSelect', [{ id: '', name: 'Select Department' }, ...depts], 'id', 'name');
+            loadFacultyHistory();
+        }
+
+        // UNLOCKS SECTION ONLY AFTER DEPARTMENT IS SELECTED
+        async function onHistDeptChange() {
+            const branch_id = document.getElementById('histBranchSelect').value;
+            const dept_id = document.getElementById('histDeptSelect').value;
+            const secSelect = document.getElementById('histSecSelect');
+
+            if (!branch_id || !dept_id) {
+                secSelect.innerHTML = `<option value="">Select Dept First</option>`;
+                secSelect.disabled = true;
+                loadFacultyHistory();
+                return;
+            }
+
+            // Fetch sections scoped directly to this branch and department
+            const sRes = await fetch(`/api/sections?branch_id=${branch_id}&dept_id=${dept_id}`);
+            const sections = await sRes.json();
+
+            if (sections.length === 0) {
+                secSelect.innerHTML = `<option value="">No Sections Found</option>`;
+                secSelect.disabled = true;
+            } else {
+                populateDropdown('histSecSelect', [{ id: '', name: 'Select Section' }, ...sections], 'id', 'name', 'Sec-');
+                secSelect.disabled = false; // Enable Section selection
+            }
+
+            loadFacultyHistory();
+        }
+
+        function resetHistoryFilters() {
+            document.getElementById('histFromDate').value = '';
+            document.getElementById('histToDate').value = '';
+            document.getElementById('histHourSlot').value = '';
+            document.getElementById('histBranchSelect').value = '';
+            document.getElementById('histDeptSelect').innerHTML = `<option value="">Select Course First</option>`;
+
+            const secSelect = document.getElementById('histSecSelect');
+            secSelect.innerHTML = `<option value="">Select Dept First</option>`;
+            secSelect.disabled = true;
+
+            loadFacultyHistory();
+        }
+
+        async function loadFacultyHistory() {
+            if (!loggedInFaculty) return;
+
+            const from_date = document.getElementById('histFromDate')?.value || '';
+            const to_date = document.getElementById('histToDate')?.value || '';
+            const hour_slot = document.getElementById('histHourSlot')?.value || '';
+            const branch_id = document.getElementById('histBranchSelect')?.value || '';
+            const dept_id = document.getElementById('histDeptSelect')?.value || '';
+            const section_id = document.getElementById('histSecSelect')?.value || '';
+
+            // Stats unlocked strictly when both Section and Hour Slot are chosen
+            const isTargetHourAndSectionSelected = Boolean(section_id && hour_slot);
+
+            let queryParams = new URLSearchParams({ faculty_id: loggedInFaculty.id });
+            if (from_date) queryParams.append('from_date', from_date);
+            if (to_date) queryParams.append('to_date', to_date);
+            if (hour_slot) queryParams.append('hour_slot', hour_slot);
+            if (branch_id) queryParams.append('branch_id', branch_id);
+            if (dept_id) queryParams.append('dept_id', dept_id);
+            if (section_id) queryParams.append('section_id', section_id);
+
+            const res = await fetch(`/api/faculty/sessions-history?${queryParams.toString()}`);
+            facultyHistoryCache = await res.json();
+            const tbody = document.getElementById('historyTableBody');
+            tbody.innerHTML = '';
+
+            if (!facultyHistoryCache || facultyHistoryCache.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" class="p-8 text-center text-slate-400 font-semibold">No attendance sessions found matching the selected filters.</td></tr>`;
+                return;
+            }
+
+            facultyHistoryCache.forEach(sess => {
+                const total = sess.total_students;
+                const pct = total > 0 ? ((sess.present_count / total) * 100).toFixed(0) : '100';
+
+                let statsCellHTML = '';
+                if (isTargetHourAndSectionSelected) {
+                    statsCellHTML = `
+                        <div class="flex items-center gap-2">
+                            <div class="w-16 bg-slate-200 rounded-full h-2 overflow-hidden">
+                                <div class="bg-emerald-500 h-2 rounded-full" style="width: ${pct}%"></div>
+                            </div>
+                            <span class="font-mono text-xs font-bold text-slate-700">${pct}%</span>
+                        </div>
+                        <span class="text-[11px] font-mono text-slate-500 block mt-0.5">
+                            <b class="text-emerald-700">${sess.present_count} P</b> / <b class="text-rose-700">${sess.absent_count} A</b>
+                        </span>
+                    `;
+                } else {
+                    statsCellHTML = `
+                        <span class="text-slate-400 italic text-[11px] bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
+                            Select Section & Hour
+                        </span>
+                    `;
+                }
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+                        <td class="p-3 font-mono font-bold text-slate-700">${sess.date}</td>
+                        <td class="p-3 font-black text-blue-700">${sess.hour_slot}</td>
+                        <td class="p-3 font-semibold text-slate-800">
+                            ${escapeHtml(sess.branch_name)} ${escapeHtml(sess.dept_name)}
+                            <span class="text-[11px] font-mono text-slate-500 block">Batch ${escapeHtml(sess.batch_year_name)}, Sec-${escapeHtml(sess.sec_name)}</span>
+                        </td>
+                        <td class="p-3 font-bold text-slate-900">${escapeHtml(sess.subject_name)}</td>
+                        <td class="p-3 font-mono text-slate-500">${sess.submission_time || 'N/A'}</td>
+                        <td class="p-3">
+                            ${statsCellHTML}
+                        </td>
+                        <td class="p-3 text-right space-x-1.5 whitespace-nowrap">
+                            <button onclick="inspectSessionRoster(${sess.branch_id}, ${sess.dept_id}, ${sess.batch_year_id}, ${sess.section_id}, ${jsArg(sess.date)}, ${jsArg(sess.hour_slot)}, ${jsArg(sess.subject_name)}, ${jsArg(sess.branch_name + ' ' + sess.dept_name + ' Sec-' + sess.sec_name)})" class="bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs px-2.5 py-1.5 rounded-lg shadow-sm transition inline-flex items-center gap-1">
+                                👁️ View
+                            </button>
+                            <button onclick="downloadHourPdf(${sess.branch_id}, ${sess.dept_id}, ${sess.batch_year_id}, ${sess.section_id}, '${sess.date}', '${sess.hour_slot}')" class="bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs px-2.5 py-1.5 rounded-lg shadow-sm transition inline-flex items-center gap-1">
+                                📄 PDF
+                            </button>
+                            <button onclick="resendDossierToMentor(${sess.branch_id}, ${sess.dept_id}, ${sess.batch_year_id}, ${sess.section_id}, '${sess.date}', '${sess.hour_slot}')" class="bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-bold text-xs px-2 py-1.5 rounded-lg shadow-sm transition inline-flex items-center gap-1" title="Re-send PDF report to Section Mentor">
+                                ✉️ Re-send
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function inspectSessionRoster(branch_id, dept_id, batch_year_id, section_id, date, hour_slot, subject, classTitle) {
+            activeModalSessionParams = { branch_id, dept_id, batch_year_id, section_id, date, hour_slot, subject, classTitle };
+            const url = `/api/faculty/session-students?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}&section_id=${section_id}&date=${date}&hour_slot=${encodeURIComponent(hour_slot)}`;
+            const res = await fetch(url);
+            currentSessionRosterData = await res.json();
+
+            document.getElementById('rosterModalTitle').innerText = `${subject} (${hour_slot})`;
+            document.getElementById('rosterModalSubtitle').innerText = `${classTitle}  |  Date: ${date}`;
+
+            const presents = currentSessionRosterData.filter(s => s.status === 'Present').length;
+            const absents = currentSessionRosterData.filter(s => s.status === 'Absent').length;
+            const total = currentSessionRosterData.length;
+            const pct = total > 0 ? ((presents / total) * 100).toFixed(1) : '100.0';
+
+            document.getElementById('rosterPresentBadge').innerText = `${presents} Present`;
+            document.getElementById('rosterAbsentBadge').innerText = `${absents} Absent`;
+            document.getElementById('rosterPctBadge').innerText = `${pct}% Rate`;
+
+            const tbody = document.getElementById('sessionRosterTableBody');
+            tbody.innerHTML = '';
+
+            currentSessionRosterData.forEach(st => {
+                const isPresent = st.status === 'Present';
+                const statusBadge = isPresent
+                    ? `<span class="bg-emerald-100 text-emerald-800 font-bold px-2.5 py-1 rounded text-xs">PRESENT</span>`
+                    : (st.status === 'Absent' ? `<span class="bg-rose-100 text-rose-800 font-bold px-2.5 py-1 rounded text-xs">ABSENT</span>` : `<span class="bg-amber-100 text-amber-800 font-bold px-2.5 py-1 rounded text-xs">LEISURE</span>`);
+
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+                        <td class="p-3 font-mono font-bold text-blue-600">${escapeHtml(st.roll_number)}</td>
+                        <td class="p-3 font-semibold text-slate-800">${escapeHtml(st.student_name || 'N/A')}</td>
+                        <td class="p-3 font-mono text-slate-600">${escapeHtml(st.phone_number || 'N/A')}</td>
+                        <td class="p-3 font-mono text-slate-600">${escapeHtml(st.parent_number || 'N/A')}</td>
+                        <td class="p-3">${statusBadge}</td>
+                        <td class="p-3 text-right">
+                            <button onclick="correctStudentStatus(${jsArg(st.roll_number)}, '${isPresent ? 'Absent' : 'Present'}')" class="text-xs font-bold px-2.5 py-1 rounded border transition ${isPresent ? 'bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-100' : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100'}">
+                                Mark ${isPresent ? 'Absent' : 'Present'}
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            document.getElementById('sessionRosterModal').classList.remove('hidden');
+        }
+
+        async function correctStudentStatus(roll_number, new_status) {
+            if (!confirm(`Are you sure you want to change attendance for ${roll_number} to "${new_status}"?`)) return;
+
+            const payload = {
+                ...activeModalSessionParams,
+                roll_number,
+                new_status,
+                faculty_id: loggedInFaculty.id
+            };
+
+            const res = await fetch('/api/faculty/update-student-status', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.success) {
+                const p = activeModalSessionParams;
+                await inspectSessionRoster(p.branch_id, p.dept_id, p.batch_year_id, p.section_id, p.date, p.hour_slot, p.subject, p.classTitle);
+                await loadFacultyHistory();
+            } else {
+                alert("Correction failed: " + data.message);
+            }
+        }
+
+        function closeSessionRosterModal() {
+            document.getElementById('sessionRosterModal').classList.add('hidden');
+        }
+
+        function copyAbsenteeRollsFromModal() {
+            const absentees = currentSessionRosterData.filter(s => s.status === 'Absent').map(s => s.roll_number);
+            if (absentees.length === 0) {
+                return alert("No absentees in this session (100% Attendance).");
+            }
+            navigator.clipboard.writeText(absentees.join(', '));
+            alert(`Copied ${absentees.length} absent roll numbers to clipboard!`);
+        }
+
+        async function resendDossierToMentor(branch_id, dept_id, batch_year_id, section_id, date, hour_slot) {
+            if (!confirm(`Re-send the attendance dossier for ${date} (${hour_slot}) to the assigned Section Mentor?`)) return;
+
+            const res = await fetch('/api/faculty/resend-report', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ branch_id, dept_id, batch_year_id, section_id, date, hour_slot })
+            });
+            const data = await res.json();
+            alert(data.message);
+        }
+
+        function downloadConsolidatedAuditPdf() {
+            if (!loggedInFaculty) return;
+            const from_date = document.getElementById('histFromDate').value;
+            const to_date = document.getElementById('histToDate').value;
+            const branch_id = document.getElementById('histBranchSelect').value;
+            const dept_id = document.getElementById('histDeptSelect').value;
+            const section_id = document.getElementById('histSecSelect').value;
+
+            const params = new URLSearchParams({
+                faculty_id: loggedInFaculty.id,
+                from_date,
+                to_date,
+                branch_id,
+                dept_id,
+                section_id
+            });
+
+            const url = `/api/faculty/reports/consolidated-pdf?${params.toString()}`;
+            window.open(url, '_blank');
+        }
+
+        function exportHistoryCsv() {
+            if (!facultyHistoryCache || facultyHistoryCache.length === 0) {
+                return alert("No history records to export.");
+            }
+
+            let csv = "Date,Hour Slot,Class,Section,Subject,Submission Time,Present Count,Absent Count,Total Students,Attendance %\n";
+            facultyHistoryCache.forEach(r => {
+                const total = r.total_students;
+                const pct = total > 0 ? ((r.present_count / total) * 100).toFixed(1) : '100.0';
+                csv += [r.date, r.hour_slot, `${r.branch_name} ${r.dept_name}`, r.sec_name, r.subject_name, r.submission_time, r.present_count, r.absent_count, total, `${pct}%`].map(csvCell).join(',') + '\n';
+            });
+
+            const blob = new Blob([csv], { type: 'text/csv' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.setAttribute('href', url);
+            a.setAttribute('download', `Faculty_Attendance_History_${loggedInFaculty.id}.csv`);
+            a.click();
+            setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+        }
+
+        function downloadHourPdf(branch_id, dept_id, batch_year_id, section_id, date, hour_slot) {
+            const url = `/api/faculty/reports/hourly-pdf?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}&section_id=${section_id}&date=${date}&hour_slot=${encodeURIComponent(hour_slot)}`;
+            window.open(url, '_blank');
+        }
+// Controls the dynamic animated modal states
+function showStatusModal(type, title, desc, showBtn = false, btnText = "Dismiss") {
+    const overlay = document.getElementById('statusModalOverlay');
+    const iconBox = document.getElementById('statusModalIcon');
+    const spinner = document.getElementById('statusSpinner');
+    const successIcon = document.getElementById('statusSuccessIcon');
+    const errorIcon = document.getElementById('statusErrorIcon');
+    const titleEl = document.getElementById('statusModalTitle');
+    const descEl = document.getElementById('statusModalDesc');
+    const actionsBox = document.getElementById('statusModalActions');
+    const actionBtn = document.getElementById('statusModalBtn');
+
+    overlay.classList.remove('hidden');
+    titleEl.innerText = title;
+    descEl.innerText = desc;
+
+    // Reset icons
+    spinner.classList.add('hidden');
+    successIcon.classList.add('hidden');
+    errorIcon.classList.add('hidden');
+    iconBox.className = "w-14 h-14 mx-auto mb-4 rounded-full flex items-center justify-center transition-all";
+
+    if (type === 'loading') {
+        spinner.classList.remove('hidden');
+        iconBox.classList.add('bg-blue-50');
+    } else if (type === 'success') {
+        successIcon.classList.remove('hidden');
+        iconBox.classList.add('bg-emerald-50');
+    } else if (type === 'error') {
+        errorIcon.classList.remove('hidden');
+        iconBox.classList.add('bg-rose-50');
+    }
+
+    if (showBtn) {
+        actionsBox.classList.remove('hidden');
+        actionBtn.innerText = btnText;
+        if (type === 'success') {
+            actionBtn.className = "w-full py-2.5 rounded-xl text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-md";
+        } else {
+            actionBtn.className = "w-full py-2.5 rounded-xl text-xs font-bold text-white bg-slate-900 hover:bg-black transition shadow-md";
+        }
+    } else {
+        actionsBox.classList.add('hidden');
+    }
+}
+
+function closeStatusModal() {
+    document.getElementById('statusModalOverlay').classList.add('hidden');
+}
+    </script>
+</body>
+</html>

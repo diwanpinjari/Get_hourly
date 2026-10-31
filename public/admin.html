@@ -1,0 +1,1322 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Management Portal - Attendance System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/common.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen text-slate-800">
+
+    <!-- ADMIN LOGIN MODAL -->
+    <div id="adminLoginModal" class="fixed inset-0 bg-slate-900 z-50 flex items-center justify-center p-4">
+        <div class="bg-white p-8 rounded-2xl shadow-2xl w-full max-w-md border border-slate-200">
+            <div class="text-center mb-6">
+                <h2 class="text-2xl font-black text-slate-900">Admin Portal Login</h2>
+                <p class="text-xs font-semibold text-slate-500 mt-1">College Attendance Management System</p>
+            </div>
+            <div class="mb-4">
+                <label class="block text-xs font-bold text-slate-700 mb-1">Admin ID</label>
+                <input type="text" id="loginAdminId" value="ADMIN01" placeholder="e.g. ADMIN01" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-bold uppercase focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="mb-6">
+                <label class="block text-xs font-bold text-slate-700 mb-1">Password</label>
+                <input type="password" id="loginAdminPass" value="admin123" placeholder="••••••••" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold focus:ring-2 focus:ring-blue-500">
+            </div>
+            <button onclick="loginAdmin()" class="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-3 rounded-xl text-xs transition shadow-md">
+                Authenticate & Open Dashboard 🔓
+            </button>
+        </div>
+    </div>
+
+    <!-- DYNAMIC UNIVERSAL EDIT MODAL -->
+    <div id="editModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200">
+            <h3 class="font-bold text-base text-slate-800 mb-4" id="modalTitle">Edit Record</h3>
+            <div id="modalBody" class="space-y-3"></div>
+            <div class="flex justify-end gap-2 mt-6">
+                <button onclick="closeModal()" class="bg-slate-200 text-slate-700 font-bold text-xs px-4 py-2 rounded-lg hover:bg-slate-300">Cancel</button>
+                <button id="modalSaveBtn" class="bg-blue-600 text-white font-bold text-xs px-4 py-2 rounded-lg hover:bg-blue-700">Save Changes</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- EMAIL OTP MODAL -->
+    <div id="otpModal" class="hidden fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 border border-slate-200">
+            <div class="text-center mb-4">
+                <div class="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-2 text-xl font-bold">🔒</div>
+                <h3 class="font-black text-lg text-slate-900">Security Verification Required</h3>
+                <p class="text-xs text-slate-500 mt-1" id="otpModalSub">An OTP has been sent to your admin email to confirm deletion.</p>
+            </div>
+            <div class="mb-6">
+                <label class="block text-xs font-bold text-slate-700 mb-1">Enter 6-Digit Email OTP</label>
+                <input type="text" id="inputOtp" placeholder="123456" maxlength="6" class="w-full border border-slate-300 rounded-lg p-3 text-center text-lg font-mono font-black tracking-widest bg-slate-50 focus:ring-2 focus:ring-rose-500">
+            </div>
+            <div class="flex gap-2">
+                <button onclick="closeOtpModal()" class="w-1/2 bg-slate-200 text-slate-700 font-bold text-xs py-2.5 rounded-xl hover:bg-slate-300">Cancel</button>
+                <button onclick="confirmOtpAndDelete()" class="w-1/2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs py-2.5 rounded-xl transition shadow-md">Verify & Delete</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="max-w-7xl mx-auto p-4 md:p-6">
+
+        <!-- HEADER -->
+        <div class="bg-white p-6 rounded-2xl shadow-md border border-slate-200 mb-6 flex flex-wrap justify-between items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-black text-slate-900">Admin Management Portal</h1>
+                <button onclick="logoutAdmin()" class="text-sm font-bold text-blue-700">Log out</button>
+                <p class="text-xs font-semibold text-slate-500 mt-0.5" id="adminHeaderProfile">Manage Hierarchy, DOEs, Faculty, Mentors, Rosters & Multiple Admin Profiles</p>
+            </div>
+            <a href="/index.html" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg transition shadow-sm">
+                Go to Faculty Portal ➔
+            </a>
+        </div>
+
+        <!-- TABS NAVIGATION -->
+        <div class="flex flex-wrap gap-2 border-b border-slate-300 mb-6">
+            <button onclick="switchTab('entities')" id="tab-entities" class="tab-btn bg-white border-t border-x border-slate-300 text-blue-600 font-extrabold text-xs px-5 py-3 rounded-t-xl shadow-sm">
+                🏛️ Hierarchy & DOE Setup
+            </button>
+            <button onclick="switchTab('faculty')" id="tab-faculty" class="tab-btn bg-slate-200 text-slate-600 font-bold text-xs px-5 py-3 rounded-t-xl hover:bg-slate-300">
+                👨‍🏫 Faculty Accounts
+            </button>
+            <button onclick="switchTab('mentors')" id="tab-mentors" class="tab-btn bg-slate-200 text-slate-600 font-bold text-xs px-5 py-3 rounded-t-xl hover:bg-slate-300">
+                👨‍💼 Mentors & Section Allocation
+            </button>
+            <button onclick="switchTab('students')" id="tab-students" class="tab-btn bg-slate-200 text-slate-600 font-bold text-xs px-5 py-3 rounded-t-xl hover:bg-slate-300">
+                🎓 Student Roster
+            </button>
+            <button onclick="switchTab('admins')" id="tab-admins" class="tab-btn bg-slate-200 text-slate-600 font-bold text-xs px-5 py-3 rounded-t-xl hover:bg-slate-300">
+                🛡️ Admin Profiles
+            </button>
+        </div>
+
+        <!-- TAB 1: MASTER ENTITIES SETUP (WITH FULL EDIT & DUPLICATE PROTECTION) -->
+        <div id="panel-entities" class="tab-panel bg-white p-6 rounded-2xl shadow-md border border-slate-200 space-y-6">
+
+            <!-- 1. COURSE / BRANCH -->
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider mb-3">1. Master Entity: Course / Branch</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mb-4">
+                    <div class="md:col-span-2">
+                        <label class="block text-xs font-bold text-slate-700 mb-1">New Course Name</label>
+                        <input type="text" id="courseNameInput" placeholder="e.g. B.Tech, Diploma, M.Tech" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white">
+                    </div>
+                    <button onclick="addCourse()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
+                        + Add Course
+                    </button>
+                </div>
+                <div class="border border-slate-200 rounded-lg p-3 bg-white">
+                    <span class="text-xs font-bold text-slate-500 block mb-2">Existing Courses:</span>
+                    <ul id="list-courses" class="flex flex-wrap gap-2 text-xs"></ul>
+                </div>
+            </div>
+
+            <!-- 2. ADD DEPARTMENT SEPARATELY (DUPLICATE PROTECTED) -->
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider mb-3">2. Add Branch / Department (Unique per Course)</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mb-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Select Parent Course</label>
+                        <select id="deptParentCourse" onchange="loadDepartmentsList()" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Branch / Department Name</label>
+                        <input type="text" id="deptNameInput" placeholder="e.g. CSE or ECE" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white">
+                    </div>
+                    <button onclick="addDepartment()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
+                        + Add Branch
+                    </button>
+                </div>
+                <div class="border border-slate-200 rounded-lg p-3 bg-white">
+                    <span class="text-xs font-bold text-slate-500 block mb-2">Branches in Selected Course:</span>
+                    <ul id="list-depts" class="space-y-2 text-xs"></ul>
+                </div>
+            </div>
+
+            <!-- 3. ASSIGN DOE SEPARATELY -->
+            <div class="bg-indigo-50/70 p-4 rounded-xl border border-indigo-200">
+                <h3 class="font-extrabold text-xs text-indigo-950 uppercase tracking-wider mb-3">3. Assign Department DOE (Director of Evaluation)</h3>
+                <p class="text-xs text-indigo-700 mb-3">The assigned DOE automatically receives official reports for <b>Hour 1</b> and <b>Hour 4</b> categorized into Morning & Afternoon attendance.</p>
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end mb-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Select Course</label>
+                        <select id="doeCourseSelect" onchange="onDoeCourseChange()" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Select Branch / Dept</label>
+                        <select id="doeDeptSelect" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-bold bg-white text-indigo-900"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">DOE Official Name</label>
+                        <input type="text" id="doeNameInput" placeholder="e.g. Dr. K. V. Sharma" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">DOE Official Email</label>
+                        <input type="email" id="doeEmailInput" placeholder="e.g. doe.cse@college.edu" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white">
+                    </div>
+                </div>
+                <button onclick="assignDepartmentDoe()" class="w-full bg-indigo-700 hover:bg-indigo-800 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
+                    Assign DOE to Selected Branch
+                </button>
+            </div>
+
+            <!-- 4. BATCH YEAR -->
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200">
+                <h3 class="font-extrabold text-xs text-slate-800 uppercase tracking-wider mb-3">4. Add Batch Year Under Course</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mb-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Select Parent Course</label>
+                        <select id="batchParentCourse" onchange="loadBatchYearsList()" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Batch Year Label</label>
+                        <input type="text" id="batchNameInput" placeholder="e.g. 2022-2026" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white">
+                    </div>
+                    <button onclick="addBatchYear()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
+                        + Add Batch Year
+                    </button>
+                </div>
+                <div class="border border-slate-200 rounded-lg p-3 bg-white">
+                    <span class="text-xs font-bold text-slate-500 block mb-2">Batch Years for Selected Course:</span>
+                    <ul id="list-batch-years" class="flex flex-wrap gap-2 text-xs"></ul>
+                </div>
+            </div>
+
+            <!-- 5. SECTION CREATION -->
+            <div class="bg-blue-50 p-4 rounded-xl border border-blue-200">
+                <h3 class="font-extrabold text-xs text-blue-900 uppercase tracking-wider mb-3">5. Create Section For Class</h3>
+                <div class="grid grid-cols-1 md:grid-cols-5 gap-3 items-end mb-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Course</label>
+                        <select id="secBranch" onchange="onSecCourseChange()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Branch / Dept</label>
+                        <select id="secDept" onchange="loadSectionsList()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Batch Year</label>
+                        <select id="secBatchYear" onchange="loadSectionsList()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Section Name</label>
+                        <input type="text" id="secNameInput" placeholder="e.g. A" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white">
+                    </div>
+                    <button onclick="createScopedSection()" class="bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
+                        + Create Section
+                    </button>
+                </div>
+                <div class="border border-blue-200 rounded-lg p-3 bg-white">
+                    <span class="text-xs font-bold text-slate-500 block mb-2">Sections for Selected Class:</span>
+                    <ul id="list-sections" class="flex flex-wrap gap-2 text-xs"></ul>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- TAB 2: FACULTY ACCOUNTS -->
+        <div id="panel-faculty" class="tab-panel hidden bg-white p-6 rounded-2xl shadow-md border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-800 mb-4">Faculty Login Credentials Management</h2>
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Faculty ID (Username)</label>
+                    <input type="text" id="facIdInput" placeholder="e.g. FAC101" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Faculty Full Name</label>
+                    <input type="text" id="facNameInput" placeholder="e.g. Dr. Vikram Rao" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Assign Password</label>
+                    <input type="password" id="facPassInput" placeholder="••••••••" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                </div>
+                <button onclick="addFaculty()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
+                    + Register Faculty
+                </button>
+            </div>
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 font-bold border-b">
+                            <th class="p-3">Faculty ID</th>
+                            <th class="p-3">Faculty Name</th>
+                            <th class="p-3">Created At</th>
+                            <th class="p-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="facultyTableBody" class="divide-y divide-slate-200"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 3: MENTORS & ALLOCATION -->
+        <div id="panel-mentors" class="tab-panel hidden bg-white p-6 rounded-2xl shadow-md border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-800 mb-4">Mentors & Class Section Allocations</h2>
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
+                <h3 class="font-extrabold text-xs text-slate-700 uppercase tracking-wider mb-3">1. Register New Mentor</h3>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Mentor Full Name</label>
+                        <input type="text" id="mentorNameInput" placeholder="e.g. Dr. Rajesh Kumar" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Mentor Email Address</label>
+                        <input type="email" id="mentorEmailInput" placeholder="e.g. rajesh@college.edu" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                    </div>
+                    <button onclick="addMentor()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
+                        + Register Mentor
+                    </button>
+                </div>
+            </div>
+
+            <div class="mb-8">
+                <h3 class="font-bold text-sm text-slate-800 mb-3">Registered Mentors List</h3>
+                <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                    <table class="w-full text-left text-xs border-collapse">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 font-bold border-b">
+                                <th class="p-3">Mentor ID</th>
+                                <th class="p-3">Mentor Name</th>
+                                <th class="p-3">Email Address</th>
+                                <th class="p-3 text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="mentorsTableBody" class="divide-y divide-slate-200"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-blue-50 p-4 rounded-xl border border-blue-200 mb-6">
+                <h3 class="font-extrabold text-xs text-blue-900 uppercase tracking-wider mb-3">2. Assign Mentor to Class Section</h3>
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Course</label>
+                        <select id="mapBranch" onchange="onMapCourseChange()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Branch / Dept</label>
+                        <select id="mapDept" onchange="updateMapSections()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Batch Year</label>
+                        <select id="mapBatchYear" onchange="updateMapSections()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Section</label>
+                        <select id="mapSec" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold bg-white text-blue-900"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Assign Mentor</label>
+                        <select id="mapMentor" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold bg-white text-blue-800"></select>
+                    </div>
+                </div>
+                <button onclick="assignSectionMentor()" class="mt-3 w-full bg-blue-700 hover:bg-blue-800 text-white font-bold text-xs py-2.5 rounded-lg transition shadow-sm">
+                    Assign Mentor to Section
+                </button>
+            </div>
+
+            <h3 class="font-bold text-sm text-slate-800 mb-3">Active Section-Mentor Mappings</h3>
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 font-bold border-b">
+                            <th class="p-3">Class Section</th>
+                            <th class="p-3">Assigned Mentor</th>
+                            <th class="p-3">Mentor Email</th>
+                            <th class="p-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="sectionMentorsTableBody" class="divide-y divide-slate-200"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 4: STUDENT ROSTER (WITH EDIT & DELETE) -->
+        <div id="panel-students" class="tab-panel hidden bg-white p-6 rounded-2xl shadow-md border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-800 mb-4">Student Roster Management</h2>
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
+                <h3 class="font-extrabold text-xs text-slate-700 uppercase tracking-wider mb-3">1. Bulk Student Allocation (CSV Format)</h3>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Target Course</label>
+                        <select id="bulkBranch" onchange="onBulkCourseChange()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Target Branch / Dept</label>
+                        <select id="bulkDept" onchange="updateBulkSections()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Target Batch Year</label>
+                        <select id="bulkBatchYear" onchange="updateBulkSections()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-white"></select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Target Section</label>
+                        <select id="bulkSec" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold bg-white text-blue-900"></select>
+                    </div>
+                </div>
+
+                <label class="block text-xs font-bold text-slate-700 mb-1">Paste CSV: RollNumber, StudentName, StudentPhone, ParentPhone (One per line)</label>
+                <textarea id="bulkCsvInput" rows="4" placeholder="22CSE01, Anil Kumar, 9876543210, 9123456789&#10;22CSE02, Bhavana S, 9876543211, 9123456790" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-mono mb-3"></textarea>
+
+                <button onclick="submitBulkStudents()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-5 rounded-lg transition shadow-sm">
+                    Enroll Students into Class
+                </button>
+            </div>
+
+            <h3 class="font-bold text-sm text-slate-800 mb-3">2. View & Manage Class Roster</h3>
+            <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Filter Course</label>
+                    <select id="filterBranch" onchange="onFilterCourseChange();" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-slate-50"></select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Filter Branch</label>
+                    <select id="filterDept" onchange="updateFilterSections();" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-slate-50"></select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Filter Batch Year</label>
+                    <select id="filterBatchYear" onchange="updateFilterSections();" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold bg-slate-50"></select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 mb-1">Filter Section</label>
+                    <select id="filterSec" onchange="loadStudentsTable()" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-bold text-blue-900 bg-slate-50"></select>
+                </div>
+                <div class="flex items-end">
+                    <button onclick="loadStudentsTable()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold text-xs py-2 rounded-lg transition">
+                        Fetch Roster
+                    </button>
+                </div>
+            </div>
+
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 font-bold border-b">
+                            <th class="p-3">Roll Number</th>
+                            <th class="p-3">Student Name</th>
+                            <th class="p-3">Student Phone</th>
+                            <th class="p-3">Parent Phone</th>
+                            <th class="p-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="studentTableBody" class="divide-y divide-slate-200"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- TAB 5: DYNAMIC ADMIN PROFILES MANAGEMENT (WITH EDIT & DELETE) -->
+        <div id="panel-admins" class="tab-panel hidden bg-white p-6 rounded-2xl shadow-md border border-slate-200">
+            <h2 class="text-lg font-bold text-slate-800 mb-4">Admin Profiles Management</h2>
+            <p class="text-xs text-slate-500 mb-4">Add, view, and edit multiple admin accounts dynamically at runtime.</p>
+
+            <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6 grid grid-cols-1 md:grid-cols-5 gap-3 items-end">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Admin ID</label>
+                    <input type="text" id="newAdminId" placeholder="e.g. ADMIN02" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-bold uppercase">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Full Name</label>
+                    <input type="text" id="newAdminName" placeholder="e.g. Principal Office" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Email Address</label>
+                    <input type="email" id="newAdminEmail" placeholder="e.g. principal@college.edu" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Password</label>
+                    <input type="password" id="newAdminPass" placeholder="••••••••" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                </div>
+                <button onclick="createAdminProfile()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
+                    + Add Admin Profile
+                </button>
+            </div>
+
+            <div class="overflow-x-auto border border-slate-200 rounded-xl">
+                <table class="w-full text-left text-xs border-collapse">
+                    <thead>
+                        <tr class="bg-slate-100 text-slate-700 font-bold border-b">
+                            <th class="p-3">Admin ID</th>
+                            <th class="p-3">Full Name</th>
+                            <th class="p-3">Email Address</th>
+                            <th class="p-3">Role</th>
+                            <th class="p-3">Created Date</th>
+                            <th class="p-3 text-right">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="adminProfilesTableBody" class="divide-y divide-slate-200"></tbody>
+                </table>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        let metadataCache = { branches: [], mentors: [] };
+        let loggedInAdmin = null;
+        let pendingOtpDeletion = null;
+
+        window.onload = function() {
+            loadMetadata();
+        };
+
+        async function loginAdmin() {
+            const username = document.getElementById('loginAdminId').value.trim();
+            const password = document.getElementById('loginAdminPass').value.trim();
+
+            if (!username || !password) return alert("Please enter Admin ID and Password.");
+
+            const res = await fetch('/api/admin/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                loggedInAdmin = data.admin;
+                document.getElementById('adminLoginModal').classList.add('hidden');
+                document.getElementById('adminHeaderProfile').innerText = `Logged in as: ${loggedInAdmin.name} (${loggedInAdmin.email})`;
+                sessionStorage.setItem('adminSession', JSON.stringify(loggedInAdmin));
+                await autoRefreshAll();
+            } else {
+                alert(data.message);
+            }
+        }
+
+        window.addEventListener('DOMContentLoaded', async () => {
+            const savedSession = sessionStorage.getItem('adminSession');
+            if (savedSession) {
+                try { loggedInAdmin = JSON.parse(savedSession); } catch { sessionStorage.removeItem('adminSession'); return; }
+                document.getElementById('adminLoginModal')?.classList.add('hidden');
+                document.getElementById('adminHeaderProfile').innerText = `Logged in as: ${loggedInAdmin.name} (${loggedInAdmin.email})`;
+                await autoRefreshAll();
+            }
+        });
+
+        function switchTab(tabKey) {
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.add('hidden'));
+            document.querySelectorAll('.tab-btn').forEach(b => {
+                b.className = "tab-btn bg-slate-200 text-slate-600 font-bold text-xs px-5 py-3 rounded-t-xl hover:bg-slate-300";
+            });
+
+            document.getElementById(`panel-${tabKey}`).classList.remove('hidden');
+            const activeBtn = document.getElementById(`tab-${tabKey}`);
+            activeBtn.className = "tab-btn bg-white border-t border-x border-slate-300 text-blue-600 font-extrabold text-xs px-5 py-3 rounded-t-xl shadow-sm";
+
+            if (tabKey === 'faculty') loadFacultyTable();
+            if (tabKey === 'mentors') { loadMentorsTable(); onMapCourseChange(); loadSectionMentorsTable(); }
+            if (tabKey === 'students') { onBulkCourseChange(); onFilterCourseChange(); loadStudentsTable(); }
+            if (tabKey === 'admins') loadAdminProfilesTable();
+        }
+
+        async function autoRefreshAll() {
+            await loadMetadata();
+            await loadFacultyTable();
+            await loadMentorsTable();
+            await loadSectionMentorsTable();
+            await loadStudentsTable();
+            await loadAdminProfilesTable();
+        }
+
+        // DYNAMIC UNIVERSAL EDIT MODAL HELPER
+        function openEditModal(title, fields, onSave) {
+            document.getElementById('modalTitle').innerText = title;
+            const container = document.getElementById('modalBody');
+            container.innerHTML = '';
+            fields.forEach(f => {
+                container.innerHTML += `
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">${f.label}</label>
+                        <input type="${f.type || 'text'}" id="${f.id}" value="${escapeHtml(f.value || '')}" placeholder="${escapeHtml(f.placeholder || '')}" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold focus:ring-2 focus:ring-blue-500">
+                    </div>
+                `;
+            });
+            document.getElementById('modalSaveBtn').onclick = onSave;
+            document.getElementById('editModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('editModal').classList.add('hidden');
+        }
+
+        async function loadMetadata() {
+            const res = await fetch('/api/metadata');
+            metadataCache = await res.json();
+
+            populateSelect('secBranch', metadataCache.branches, 'id', 'name');
+            populateSelect('deptParentCourse', metadataCache.branches, 'id', 'name');
+            populateSelect('doeCourseSelect', metadataCache.branches, 'id', 'name');
+            populateSelect('batchParentCourse', metadataCache.branches, 'id', 'name');
+            populateSelect('mapBranch', metadataCache.branches, 'id', 'name');
+            populateSelect('mapMentor', metadataCache.mentors, 'mentor_id', 'name');
+            populateSelect('bulkBranch', metadataCache.branches, 'id', 'name');
+            populateSelect('filterBranch', metadataCache.branches, 'id', 'name');
+
+            renderCoursesList();
+            await loadDepartmentsList();
+            await onDoeCourseChange();
+            await loadBatchYearsList();
+            await onSecCourseChange();
+        }
+
+        function populateSelect(id, items, valueKey, labelKey, prefix = '') {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.innerHTML = '';
+            items.forEach(item => {
+                el.add(new Option(prefix + item[labelKey], item[valueKey]));
+            });
+        }
+
+        async function fetchSelectData(url, targetSelectId, labelKey = 'name', prefix = '') {
+            const el = document.getElementById(targetSelectId);
+            if (!el) return;
+            el.innerHTML = '';
+            const res = await fetch(url);
+            const items = await res.json();
+            if (items.length === 0) {
+                el.innerHTML = `<option value="">None Found</option>`;
+                return;
+            }
+            items.forEach(i => el.add(new Option(prefix + i[labelKey], i.id)));
+        }
+
+        async function onDoeCourseChange() {
+            const branchId = document.getElementById('doeCourseSelect').value;
+            if (!branchId) return;
+            await fetchSelectData(`/api/departments?branch_id=${branchId}`, 'doeDeptSelect');
+        }
+
+        async function onSecCourseChange() {
+            const branchId = document.getElementById('secBranch').value;
+            if (!branchId) return;
+            await fetchSelectData(`/api/departments?branch_id=${branchId}`, 'secDept');
+            await fetchSelectData(`/api/batch-years?branch_id=${branchId}`, 'secBatchYear');
+            await loadSectionsList();
+        }
+
+        async function onMapCourseChange() {
+            const branchId = document.getElementById('mapBranch').value;
+            if (!branchId) return;
+            await fetchSelectData(`/api/departments?branch_id=${branchId}`, 'mapDept');
+            await fetchSelectData(`/api/batch-years?branch_id=${branchId}`, 'mapBatchYear');
+            updateMapSections();
+        }
+
+        async function onBulkCourseChange() {
+            const branchId = document.getElementById('bulkBranch').value;
+            if (!branchId) return;
+            await fetchSelectData(`/api/departments?branch_id=${branchId}`, 'bulkDept');
+            await fetchSelectData(`/api/batch-years?branch_id=${branchId}`, 'bulkBatchYear');
+            updateBulkSections();
+        }
+
+        async function onFilterCourseChange() {
+            const branchId = document.getElementById('filterBranch').value;
+            if (!branchId) return;
+            await fetchSelectData(`/api/departments?branch_id=${branchId}`, 'filterDept');
+            await fetchSelectData(`/api/batch-years?branch_id=${branchId}`, 'filterBatchYear');
+            updateFilterSections();
+        }
+
+        function updateMapSections() {
+            const b = document.getElementById('mapBranch').value;
+            const d = document.getElementById('mapDept').value;
+            const by = document.getElementById('mapBatchYear').value;
+            fetchSelectData(`/api/sections?branch_id=${b}&dept_id=${d}&batch_year_id=${by}`, 'mapSec', 'name', 'Sec-');
+        }
+
+        function updateBulkSections() {
+            const b = document.getElementById('bulkBranch').value;
+            const d = document.getElementById('bulkDept').value;
+            const by = document.getElementById('bulkBatchYear').value;
+            fetchSelectData(`/api/sections?branch_id=${b}&dept_id=${d}&batch_year_id=${by}`, 'bulkSec', 'name', 'Sec-');
+        }
+
+        function updateFilterSections() {
+            const b = document.getElementById('filterBranch').value;
+            const d = document.getElementById('filterDept').value;
+            const by = document.getElementById('filterBatchYear').value;
+            fetchSelectData(`/api/sections?branch_id=${b}&dept_id=${d}&batch_year_id=${by}`, 'filterSec', 'name', 'Sec-');
+        }
+
+        // OTP & DELETIONS
+        async function triggerDeleteOtp(entity_type, id, displayName) {
+            if (!loggedInAdmin || !loggedInAdmin.email) return alert("Admin session required.");
+            const initialConfirm = confirm(`Are you sure you want to delete the ${entity_type}: "${displayName}"?`);
+            if (!initialConfirm) return;
+
+            const res = await fetch('/api/admin/request-delete-otp', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ admin_email: loggedInAdmin.email, entity_type })
+            });
+            const data = await res.json();
+            if (data.success) {
+                pendingOtpDeletion = { entity_type, id, displayName };
+                document.getElementById('otpModalSub').innerText = `An OTP has been sent to ${loggedInAdmin.email} to confirm deleting "${displayName}".`;
+                document.getElementById('inputOtp').value = '';
+                document.getElementById('otpModal').classList.remove('hidden');
+            } else alert(data.message);
+        }
+
+        function closeOtpModal() {
+            pendingOtpDeletion = null;
+            document.getElementById('otpModal').classList.add('hidden');
+        }
+
+        async function confirmOtpAndDelete() {
+            const otp = document.getElementById('inputOtp').value.trim();
+            if (!otp || otp.length !== 6) return alert("Please enter the 6-digit OTP.");
+
+            const { entity_type, id } = pendingOtpDeletion;
+            const endpointMap = {
+                branch: `/api/admin/branches/${id}`,
+                department: `/api/admin/departments/${id}`,
+                batch_year: `/api/admin/batch-years/${id}`,
+                section: `/api/admin/sections/${id}`
+            };
+
+            const res = await fetch(endpointMap[entity_type], {
+                method: 'DELETE',
+                headers: { 'x-admin-email': loggedInAdmin.email, 'x-delete-otp': otp }
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message);
+                closeOtpModal();
+                await autoRefreshAll();
+            } else alert("Verification Failed: " + data.message);
+        }
+
+        // 1. COURSES (ADD, EDIT, DELETE)
+        function renderCoursesList() {
+            const list = document.getElementById('list-courses');
+            list.innerHTML = '';
+            metadataCache.branches.forEach(b => {
+                list.innerHTML += `
+                    <li class="flex items-center bg-slate-100 px-2.5 py-1 rounded border border-slate-300">
+                        <span class="font-bold text-slate-800">${escapeHtml(b.name)}</span>
+                        <button onclick="editCourse(${b.id}, ${jsArg(b.name)})" class="ml-2 text-blue-600 hover:text-blue-800 font-bold">✎</button>
+                        <button onclick="triggerDeleteOtp('branch', ${b.id}, ${jsArg(b.name)})" class="ml-1.5 text-rose-600 hover:text-rose-800 font-bold">✕</button>
+                    </li>
+                `;
+            });
+        }
+
+        async function addCourse() {
+            const name = document.getElementById('courseNameInput').value.trim();
+            if (!name) return alert("Enter Course name.");
+            const res = await fetch('/api/admin/branches', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('courseNameInput').value = '';
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        function editCourse(id, currentName) {
+            openEditModal(`Edit Course: ${currentName}`, [
+                { id: 'editCourseName', label: 'Course Name', value: currentName }
+            ], async () => {
+                const name = document.getElementById('editCourseName').value.trim();
+                const res = await fetch(`/api/admin/branches/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                if (data.success) { closeModal(); await autoRefreshAll(); } else alert(data.message);
+            });
+        }
+
+        // 2. DEPARTMENTS / BRANCHES (ADD, EDIT, DELETE)
+        async function loadDepartmentsList() {
+            const branchId = document.getElementById('deptParentCourse').value;
+            const list = document.getElementById('list-depts');
+            list.innerHTML = '';
+            if (!branchId) return;
+
+            const res = await fetch(`/api/departments?branch_id=${branchId}`);
+            const depts = await res.json();
+            if (depts.length === 0) {
+                list.innerHTML = `<li class="text-slate-400 italic">No branches under this course.</li>`;
+                return;
+            }
+
+            depts.forEach(d => {
+                list.innerHTML += `
+                    <li class="flex items-center justify-between bg-slate-50 p-2.5 rounded-lg border border-slate-200">
+                        <div>
+                            <span class="font-black text-slate-800 text-sm">${escapeHtml(d.name)}</span>
+                            <span class="ml-2 text-[11px] font-semibold text-indigo-700 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
+                                Assigned DOE: ${escapeHtml(d.doe_name || 'None')} (${escapeHtml(d.doe_email || 'No Email')})
+                            </span>
+                        </div>
+                        <div class="space-x-1">
+                            <button onclick="editDepartment(${d.id}, ${jsArg(d.name)}, ${jsArg(d.doe_name)}, ${jsArg(d.doe_email)})" class="text-blue-600 hover:text-blue-800 font-bold px-2 py-1">✎ Edit</button>
+                            <button onclick="triggerDeleteOtp('department', ${d.id}, ${jsArg(d.name)})" class="text-rose-600 hover:text-rose-800 font-bold px-2 py-1">✕</button>
+                        </div>
+                    </li>
+                `;
+            });
+        }
+
+        async function addDepartment() {
+            const branch_id = parseInt(document.getElementById('deptParentCourse').value);
+            const name = document.getElementById('deptNameInput').value.trim();
+
+            if (!branch_id || !name) return alert("Select Course and enter Branch/Department name.");
+
+            const res = await fetch('/api/admin/departments', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, branch_id })
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('deptNameInput').value = '';
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        function editDepartment(id, currentName, currentDoeName, currentDoeEmail) {
+            openEditModal(`Edit Branch: ${currentName}`, [
+                { id: 'editDeptName', label: 'Branch / Department Name', value: currentName },
+                { id: 'editDeptDoeName', label: 'DOE Official Name', value: currentDoeName },
+                { id: 'editDeptDoeEmail', label: 'DOE Official Email', value: currentDoeEmail, type: 'email' }
+            ], async () => {
+                const name = document.getElementById('editDeptName').value.trim();
+                const doe_name = document.getElementById('editDeptDoeName').value.trim();
+                const doe_email = document.getElementById('editDeptDoeEmail').value.trim();
+
+                const res = await fetch(`/api/admin/departments/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, doe_name, doe_email })
+                });
+                const data = await res.json();
+                if (data.success) { closeModal(); await autoRefreshAll(); } else alert(data.message);
+            });
+        }
+
+        // DOE ASSIGNMENT
+        async function assignDepartmentDoe() {
+            const deptId = document.getElementById('doeDeptSelect').value;
+            const doe_name = document.getElementById('doeNameInput').value.trim();
+            const doe_email = document.getElementById('doeEmailInput').value.trim();
+
+            if (!deptId) return alert("Please select a Branch/Department.");
+            if (!doe_name || !doe_email) return alert("Please enter DOE Official Name and Email.");
+
+            const res = await fetch(`/api/admin/departments/${deptId}/doe`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ doe_name, doe_email })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message);
+                document.getElementById('doeNameInput').value = '';
+                document.getElementById('doeEmailInput').value = '';
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        // 3. BATCH YEARS (ADD, EDIT, DELETE)
+        async function loadBatchYearsList() {
+            const branchId = document.getElementById('batchParentCourse').value;
+            const list = document.getElementById('list-batch-years');
+            list.innerHTML = '';
+            if (!branchId) return;
+
+            const res = await fetch(`/api/batch-years?branch_id=${branchId}`);
+            const batchYears = await res.json();
+            if (batchYears.length === 0) {
+                list.innerHTML = `<li class="text-slate-400 italic">No batch years under this course.</li>`;
+                return;
+            }
+
+            batchYears.forEach(by => {
+                list.innerHTML += `
+                    <li class="flex items-center bg-slate-100 px-2.5 py-1 rounded border border-slate-300">
+                        <span class="font-bold text-slate-800">${escapeHtml(by.name)}</span>
+                        <button onclick="editBatchYear(${by.id}, ${jsArg(by.name)})" class="ml-2 text-blue-600 hover:text-blue-800 font-bold">✎</button>
+                        <button onclick="triggerDeleteOtp('batch_year', ${by.id}, ${jsArg(by.name)})" class="ml-1.5 text-rose-600 hover:text-rose-800 font-bold">✕</button>
+                    </li>
+                `;
+            });
+        }
+
+        async function addBatchYear() {
+            const branch_id = parseInt(document.getElementById('batchParentCourse').value);
+            const name = document.getElementById('batchNameInput').value.trim();
+            if (!branch_id || !name) return alert("Select Course and enter Batch Year.");
+
+            const res = await fetch('/api/admin/batch-years', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, branch_id })
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('batchNameInput').value = '';
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        function editBatchYear(id, currentName) {
+            openEditModal(`Edit Batch Year: ${currentName}`, [
+                { id: 'editBatchName', label: 'Batch Year Label', value: currentName }
+            ], async () => {
+                const name = document.getElementById('editBatchName').value.trim();
+                const res = await fetch(`/api/admin/batch-years/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                if (data.success) { closeModal(); await autoRefreshAll(); } else alert(data.message);
+            });
+        }
+
+        // 4. SECTIONS (ADD, EDIT, DELETE)
+        async function loadSectionsList() {
+            const branch_id = document.getElementById('secBranch').value;
+            const dept_id = document.getElementById('secDept').value;
+            const batch_year_id = document.getElementById('secBatchYear').value;
+            const list = document.getElementById('list-sections');
+            list.innerHTML = '';
+
+            if (!branch_id || !dept_id || !batch_year_id) return;
+
+            const res = await fetch(`/api/sections?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}`);
+            const sections = await res.json();
+
+            if (sections.length === 0) {
+                list.innerHTML = `<li class="text-slate-400 italic">No sections created for this class yet.</li>`;
+                return;
+            }
+
+            sections.forEach(s => {
+                list.innerHTML += `
+                    <li class="flex items-center bg-blue-100 px-2.5 py-1 rounded border border-blue-300">
+                        <span class="font-bold text-blue-900">Sec-${escapeHtml(s.name)}</span>
+                        <button onclick="editSection(${s.id}, ${jsArg(s.name)})" class="ml-2 text-blue-600 hover:text-blue-800 font-bold">✎</button>
+                        <button onclick="triggerDeleteOtp('section', ${s.id}, ${jsArg('Sec-' + s.name)})" class="ml-1.5 text-rose-600 hover:text-rose-800 font-bold">✕</button>
+                    </li>
+                `;
+            });
+        }
+
+        async function createScopedSection() {
+            const branch_id = parseInt(document.getElementById('secBranch').value);
+            const dept_id = parseInt(document.getElementById('secDept').value);
+            const batch_year_id = parseInt(document.getElementById('secBatchYear').value);
+            const name = document.getElementById('secNameInput').value.trim();
+
+            if (!name || !branch_id || !dept_id || !batch_year_id) return alert("Fill all class fields.");
+
+            const res = await fetch('/api/admin/sections', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, branch_id, dept_id, batch_year_id })
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('secNameInput').value = '';
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        function editSection(id, currentName) {
+            openEditModal(`Edit Section: ${currentName}`, [
+                { id: 'editSecName', label: 'Section Name (e.g. A, B)', value: currentName }
+            ], async () => {
+                const name = document.getElementById('editSecName').value.trim();
+                const res = await fetch(`/api/admin/sections/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name })
+                });
+                const data = await res.json();
+                if (data.success) { closeModal(); await autoRefreshAll(); } else alert(data.message);
+            });
+        }
+
+        // 5. FACULTY (ADD, EDIT, DELETE)
+        async function loadFacultyTable() {
+            const res = await fetch('/api/admin/faculty');
+            const data = await res.json();
+            const tbody = document.getElementById('facultyTableBody');
+            tbody.innerHTML = '';
+            data.forEach(f => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 font-mono font-bold text-blue-600">${escapeHtml(f.faculty_id)}</td>
+                        <td class="p-3 font-semibold text-slate-800">${escapeHtml(f.name)}</td>
+                        <td class="p-3 text-slate-500">${new Date(f.created_at).toLocaleDateString()}</td>
+                        <td class="p-3 text-right space-x-2">
+                            <button onclick="editFaculty(${jsArg(f.faculty_id)}, ${jsArg(f.name)})" class="text-blue-600 hover:underline font-bold">Edit</button>
+                            <button onclick="deleteFaculty(${jsArg(f.faculty_id)}, ${jsArg(f.name)})" class="text-rose-600 hover:underline font-bold">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function addFaculty() {
+            const faculty_id = document.getElementById('facIdInput').value.trim();
+            const name = document.getElementById('facNameInput').value.trim();
+            const password = document.getElementById('facPassInput').value.trim();
+
+            if (!faculty_id || !name || !password) return alert("Fill all faculty fields.");
+
+            const res = await fetch('/api/admin/faculty', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ faculty_id, name, password })
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('facIdInput').value = '';
+                document.getElementById('facNameInput').value = '';
+                document.getElementById('facPassInput').value = '';
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        function editFaculty(faculty_id, currentName) {
+            openEditModal(`Edit Faculty: ${faculty_id}`, [
+                { id: 'editFacName', label: 'Faculty Full Name', value: currentName },
+                { id: 'editFacPass', label: 'New Password (Leave blank to keep unchanged)', placeholder: '••••••••', type: 'password' }
+            ], async () => {
+                const name = document.getElementById('editFacName').value.trim();
+                const password = document.getElementById('editFacPass').value.trim();
+
+                const res = await fetch(`/api/admin/faculty/${faculty_id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, password })
+                });
+                const data = await res.json();
+                if (data.success) { closeModal(); await autoRefreshAll(); } else alert(data.message);
+            });
+        }
+
+        async function deleteFaculty(faculty_id, name) {
+            if (!confirm(`Step 1: Delete faculty ${faculty_id} (${name})?`)) return;
+            if (!confirm(`⚠️ THINK AGAIN! You will permanently remove faculty ${faculty_id}. Proceed?`)) return;
+
+            const res = await fetch(`/api/admin/faculty/${faculty_id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) await autoRefreshAll(); else alert(data.message);
+        }
+
+        // 6. MENTORS (ADD, EDIT, DELETE)
+        async function loadMentorsTable() {
+            const res = await fetch('/api/admin/mentors');
+            const data = await res.json();
+            const tbody = document.getElementById('mentorsTableBody');
+            tbody.innerHTML = '';
+            data.forEach(m => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 font-mono font-bold text-slate-600">${m.mentor_id}</td>
+                        <td class="p-3 font-bold text-slate-800">${escapeHtml(m.name)}</td>
+                        <td class="p-3 text-blue-600 font-mono">${escapeHtml(m.email)}</td>
+                        <td class="p-3 text-right space-x-2">
+                            <button onclick="editMentor(${m.mentor_id}, ${jsArg(m.name)}, ${jsArg(m.email)})" class="text-blue-600 hover:underline font-bold">Edit</button>
+                            <button onclick="deleteMentor(${m.mentor_id})" class="text-rose-600 hover:underline font-bold">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function addMentor() {
+            const name = document.getElementById('mentorNameInput').value.trim();
+            const email = document.getElementById('mentorEmailInput').value.trim();
+            if (!name || !email) return alert("Fill all mentor fields.");
+
+            const res = await fetch('/api/admin/mentors', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, email })
+            });
+            const data = await res.json();
+            if (data.success) {
+                document.getElementById('mentorNameInput').value = '';
+                document.getElementById('mentorEmailInput').value = '';
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        function editMentor(id, currentName, currentEmail) {
+            openEditModal(`Edit Mentor Details`, [
+                { id: 'editMentorName', label: 'Mentor Full Name', value: currentName },
+                { id: 'editMentorEmail', label: 'Mentor Email Address', value: currentEmail, type: 'email' }
+            ], async () => {
+                const name = document.getElementById('editMentorName').value.trim();
+                const email = document.getElementById('editMentorEmail').value.trim();
+
+                const res = await fetch(`/api/admin/mentors/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email })
+                });
+                const data = await res.json();
+                if (data.success) { closeModal(); await autoRefreshAll(); } else alert(data.message);
+            });
+        }
+
+        async function deleteMentor(mentor_id) {
+            if (!confirm("Delete this mentor?")) return;
+            const res = await fetch(`/api/admin/mentors/${mentor_id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) await autoRefreshAll(); else alert(data.message);
+        }
+
+        async function assignSectionMentor() {
+            const section_id = parseInt(document.getElementById('mapSec').value);
+            if (!section_id) return alert("Select a valid Section.");
+
+            const payload = {
+                branch_id: parseInt(document.getElementById('mapBranch').value),
+                dept_id: parseInt(document.getElementById('mapDept').value),
+                batch_year_id: parseInt(document.getElementById('mapBatchYear').value),
+                section_id: section_id,
+                mentor_id: parseInt(document.getElementById('mapMentor').value)
+            };
+
+            const res = await fetch('/api/admin/section-mentors', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message);
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        async function loadSectionMentorsTable() {
+            const res = await fetch('/api/admin/section-mentors');
+            const data = await res.json();
+            const tbody = document.getElementById('sectionMentorsTableBody');
+            tbody.innerHTML = '';
+            data.forEach(sm => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 font-bold text-slate-800">${escapeHtml(sm.branch_name)} ${escapeHtml(sm.dept_name)} (Batch ${escapeHtml(sm.batch_year_name)}, Sec-${escapeHtml(sm.sec_name)})</td>
+                        <td class="p-3 font-semibold text-blue-800">${escapeHtml(sm.mentor_name)}</td>
+                        <td class="p-3 font-mono text-slate-600">${escapeHtml(sm.mentor_email)}</td>
+                        <td class="p-3 text-right">
+                            <button onclick="deleteSectionMentor(${sm.id})" class="text-rose-600 hover:underline font-bold">Unassign</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function deleteSectionMentor(id) {
+            if (!confirm("Remove section mentor assignment?")) return;
+            const res = await fetch(`/api/admin/section-mentors/${id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) await autoRefreshAll(); else alert(data.message);
+        }
+
+        // 7. STUDENTS (ADD, EDIT, DELETE)
+        async function submitBulkStudents() {
+            const branch_id = parseInt(document.getElementById('bulkBranch').value);
+            const dept_id = parseInt(document.getElementById('bulkDept').value);
+            const batch_year_id = parseInt(document.getElementById('bulkBatchYear').value);
+            const section_id = parseInt(document.getElementById('bulkSec').value);
+            const rawText = document.getElementById('bulkCsvInput').value.trim();
+
+            if (!section_id) return alert("Select a target section.");
+            if (!rawText) return alert("Paste CSV data.");
+
+            const lines = parseCsv(rawText);
+            const students = [];
+
+            lines.forEach((parts, index) => {
+                if (index === 0 && /^roll[ _-]?(number|no)$/i.test(parts[0])) return;
+                if (parts.length >= 2 && parts[0] && parts[1]) {
+                    students.push({ roll_number: parts[0], name: parts[1], phone_number: parts[2] || '', parent_number: parts[3] || '' });
+                } else throw new Error(`Invalid CSV row ${index + 1}: roll number and name are required.`);
+            });
+
+            if (students.length === 0) return alert("Invalid CSV format. Use: RollNumber, StudentName, StudentPhone, ParentPhone");
+
+            const res = await fetch('/api/admin/students/bulk', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ branch_id, dept_id, batch_year_id, section_id, students })
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message);
+                document.getElementById('bulkCsvInput').value = '';
+                await autoRefreshAll();
+            } else alert(data.message);
+        }
+
+        async function loadStudentsTable() {
+            const branch_id = document.getElementById('filterBranch').value;
+            const dept_id = document.getElementById('filterDept').value;
+            const batch_year_id = document.getElementById('filterBatchYear').value;
+            const section_id = document.getElementById('filterSec').value;
+
+            if (!branch_id || !dept_id || !batch_year_id || !section_id) return;
+
+            const res = await fetch(`/api/admin/students?branch_id=${branch_id}&dept_id=${dept_id}&batch_year_id=${batch_year_id}&section_id=${section_id}`);
+            const data = await res.json();
+            const tbody = document.getElementById('studentTableBody');
+            tbody.innerHTML = '';
+
+            if (data.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400 font-semibold">No students enrolled in this section yet.</td></tr>`;
+                return;
+            }
+
+            data.forEach(s => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 font-mono font-bold text-blue-600">${escapeHtml(s.roll_number)}</td>
+                        <td class="p-3 font-semibold text-slate-800">${escapeHtml(s.name)}</td>
+                        <td class="p-3 font-mono text-slate-600">${escapeHtml(s.phone_number || 'N/A')}</td>
+                        <td class="p-3 font-mono text-slate-600">${escapeHtml(s.parent_number || 'N/A')}</td>
+                        <td class="p-3 text-right space-x-2">
+                            <button onclick="editStudent(${jsArg(s.roll_number)}, ${jsArg(s.name)}, ${jsArg(s.phone_number)}, ${jsArg(s.parent_number)})" class="text-blue-600 hover:underline font-bold">Edit</button>
+                            <button onclick="deleteStudent(${jsArg(s.roll_number)}, ${jsArg(s.name)})" class="text-rose-600 hover:underline font-bold">Delete</button>
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        function editStudent(roll_number, currentName, currentPhone, currentParent) {
+            openEditModal(`Edit Student: ${roll_number}`, [
+                { id: 'editStudName', label: 'Student Full Name', value: currentName },
+                { id: 'editStudPhone', label: 'Student Phone Number', value: currentPhone },
+                { id: 'editStudParent', label: 'Parent Phone Number', value: currentParent }
+            ], async () => {
+                const name = document.getElementById('editStudName').value.trim();
+                const phone_number = document.getElementById('editStudPhone').value.trim();
+                const parent_number = document.getElementById('editStudParent').value.trim();
+
+                const res = await fetch(`/api/admin/students/${roll_number}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, phone_number, parent_number })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    closeModal();
+                    await loadStudentsTable();
+                } else alert(data.message);
+            });
+        }
+
+        async function deleteStudent(roll_number, name) {
+            if (!confirm(`Step 1: Delete student ${roll_number} (${name})?`)) return;
+            if (!confirm(`⚠️ THINK AGAIN! You will permanently remove student ${roll_number}. Proceed?`)) return;
+
+            const res = await fetch(`/api/admin/students/${roll_number}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) await loadStudentsTable(); else alert(data.message);
+        }
+
+        // 8. DYNAMIC ADMIN PROFILES (ADD, EDIT, DELETE)
+        async function loadAdminProfilesTable() {
+            const res = await fetch('/api/admin/admins');
+            const data = await res.json();
+            const tbody = document.getElementById('adminProfilesTableBody');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+
+            data.forEach(adm => {
+                tbody.innerHTML += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-3 font-mono font-bold text-indigo-700">${escapeHtml(adm.admin_id)}</td>
+                        <td class="p-3 font-bold text-slate-800">${escapeHtml(adm.name)}</td>
+                        <td class="p-3 font-mono text-slate-600">${escapeHtml(adm.email)}</td>
+                        <td class="p-3 font-semibold text-slate-700"><span class="bg-indigo-50 text-indigo-800 border border-indigo-200 px-2 py-0.5 rounded">${escapeHtml(adm.role)}</span></td>
+                        <td class="p-3 text-slate-500">${new Date(adm.created_at).toLocaleDateString()}</td>
+                        <td class="p-3 text-right space-x-2">
+                            <button onclick="editAdminProfile(${jsArg(adm.admin_id)}, ${jsArg(adm.name)}, ${jsArg(adm.email)}, ${jsArg(adm.role)})" class="text-blue-600 hover:underline font-bold">Edit</button>
+                            ${adm.admin_id === 'ADMIN01' ? '<span class="text-slate-400 font-bold italic">Primary</span>' : `<button onclick="deleteAdminProfile(${jsArg(adm.admin_id)})" class="text-rose-600 hover:underline font-bold">Delete</button>`}
+                        </td>
+                    </tr>
+                `;
+            });
+        }
+
+        async function createAdminProfile() {
+            const admin_id = document.getElementById('newAdminId').value.trim();
+            const name = document.getElementById('newAdminName').value.trim();
+            const email = document.getElementById('newAdminEmail').value.trim();
+            const password = document.getElementById('newAdminPass').value.trim();
+
+            if (!admin_id || !name || !email || !password) {
+                return alert("Please fill in all admin fields.");
+            }
+
+            const res = await fetch('/api/admin/admins', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ admin_id, name, email, password, role: 'Admin' })
+            });
+
+            const data = await res.json();
+            if (data.success) {
+                alert(data.message);
+                document.getElementById('newAdminId').value = '';
+                document.getElementById('newAdminName').value = '';
+                document.getElementById('newAdminEmail').value = '';
+                document.getElementById('newAdminPass').value = '';
+                await loadAdminProfilesTable();
+            } else {
+                alert("Error: " + data.message);
+            }
+        }
+
+        function editAdminProfile(id, currentName, currentEmail, currentRole) {
+            openEditModal(`Edit Admin Profile: ${id}`, [
+                { id: 'editAdminName', label: 'Full Name', value: currentName },
+                { id: 'editAdminEmail', label: 'Email Address', value: currentEmail, type: 'email' },
+                { id: 'editAdminRole', label: 'Role', value: currentRole },
+                { id: 'editAdminPass', label: 'New Password (Leave blank to keep unchanged)', placeholder: '••••••••', type: 'password' }
+            ], async () => {
+                const name = document.getElementById('editAdminName').value.trim();
+                const email = document.getElementById('editAdminEmail').value.trim();
+                const role = document.getElementById('editAdminRole').value.trim();
+                const password = document.getElementById('editAdminPass').value.trim();
+
+                const res = await fetch(`/api/admin/admins/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, email, role, password })
+                });
+                const data = await res.json();
+                if (data.success) { closeModal(); await loadAdminProfilesTable(); } else alert(data.message);
+            });
+        }
+
+        async function deleteAdminProfile(admin_id) {
+            if (!confirm(`Delete admin profile ${admin_id}?`)) return;
+            const res = await fetch(`/api/admin/admins/${admin_id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) await loadAdminProfilesTable(); else alert(data.message);
+        }
+    </script>
+</body>
+</html>

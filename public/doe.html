@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DOE Portal — Secure Attendance Slips</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/common.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+    <div class="bg-white max-w-md w-full rounded-2xl shadow-xl border border-slate-200 p-6">
+
+        <div class="text-center mb-6">
+            <h1 class="text-lg font-black text-slate-800 tracking-tight">ACE Engineering College</h1>
+            <p class="text-xs font-bold text-blue-800 uppercase tracking-wider mt-0.5">Directorate of Evaluation (DOE)</p>
+            <div id="deptBadge" class="mt-2 inline-block bg-blue-50 text-blue-700 text-xs font-semibold px-3 py-1 rounded-full border border-blue-200">
+                Department Verification
+            </div>
+        </div>
+
+        <!-- STEP 1: EMAIL OTP REQUEST -->
+        <div id="otpRequestStep" class="space-y-4">
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Department</label>
+                <select id="deptSelect" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-bold bg-white text-slate-800" onchange="onDeptChanged()"></select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Registered DOE Official Email</label>
+                <input type="email" id="doeEmailInput" placeholder="doe.dept@college.edu" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold focus:ring-2 focus:ring-blue-600 focus:outline-none">
+            </div>
+            <button onclick="requestOtp()" id="sendOtpBtn" class="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition shadow-sm">
+                SEND VERIFICATION CODE
+            </button>
+            <p id="requestMsg" class="text-xs font-semibold text-center text-slate-500 hidden"></p>
+        </div>
+
+        <!-- STEP 2: VERIFY OTP -->
+        <div id="otpVerifyStep" class="space-y-4 hidden">
+            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-center">
+                <p class="text-xs font-bold text-amber-800">Passcode Dispatched</p>
+                <p class="text-[11px] text-amber-700 mt-0.5" id="otpTargetMsg">Check your official DOE mailbox</p>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">6-Digit Access Passkey</label>
+                <input type="text" id="otpCodeInput" maxlength="6" placeholder="••••••" class="w-full text-center tracking-[0.4em] font-mono text-lg font-black border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-600 focus:outline-none">
+            </div>
+            <button onclick="verifyOtp()" id="verifyBtn" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition shadow-sm">
+                AUTHORIZE &amp; UNLOCK
+            </button>
+            <button onclick="backToRequest()" class="w-full text-center text-xs text-slate-500 hover:text-slate-800 font-semibold py-1">
+                &larr; Resend Code / Change Department
+            </button>
+        </div>
+
+        <!-- STEP 3: UNLOCKED SLIPS PRINT CONSOLE -->
+        <div id="printConsoleStep" class="space-y-4 hidden">
+            <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-center">
+                <p class="text-xs font-bold text-emerald-800" id="authorizedDeptText">✓ Verified: Department of CSE</p>
+                <p class="text-[10px] text-emerald-600 font-semibold">Authorized Session Active (2 Hours)</p>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">From Date</label>
+                    <input type="date" id="printFrom" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">To Date</label>
+                    <input type="date" id="printTo" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold">
+                </div>
+            </div>
+
+            <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Session Timing</label>
+                <select id="printSession" class="w-full border border-slate-300 rounded-lg p-2 text-xs font-semibold">
+                    <option value="ALL">Both Sessions (FN &amp; AN)</option>
+                    <option value="FN">Forenoon Only (FN)</option>
+                    <option value="AN">Afternoon Only (AN)</option>
+                </select>
+            </div>
+
+            <button onclick="downloadAuthorizedBatch()" class="w-full bg-slate-900 hover:bg-black text-white font-bold py-3 rounded-lg text-xs tracking-wider transition shadow-lg flex items-center justify-center gap-2">
+                <span>🖨️</span> PRINT 8-UP A4 SLIPS
+            </button>
+        </div>
+
+    </div>
+
+    <script>
+        const urlParams = new URLSearchParams(window.location.search);
+        const preselectedDept = urlParams.get('dept_id');
+        const preselectedDate = urlParams.get('date') || attendanceDate();
+        const preselectedSession = urlParams.get('session') || 'ALL';
+
+        let activeToken = null;
+        let departmentList = [];
+
+        document.getElementById('printFrom').value = preselectedDate;
+        document.getElementById('printTo').value = preselectedDate;
+        document.getElementById('printSession').value = preselectedSession;
+
+        // Load Departments
+        fetch('/api/metadata')
+            .then(res => res.json())
+            .then(async metadata => (await Promise.all(metadata.branches.map(async b => {
+                const res = await fetch(`/api/departments?branch_id=${b.id}`);
+                return (await res.json()).map(d => ({ ...d, name: `${b.name} — ${d.name}` }));
+            }))).flat())
+            .then(depts => {
+                departmentList = depts;
+                const select = document.getElementById('deptSelect');
+                depts.forEach(d => {
+                    const opt = document.createElement('option');
+                    opt.value = d.id;
+                    opt.textContent = d.name;
+                    if (preselectedDept && String(d.id) === String(preselectedDept)) opt.selected = true;
+                    select.appendChild(opt);
+                });
+                onDeptChanged();
+            }).catch(() => alert('Unable to load departments. Please reload the page.'));
+
+        function onDeptChanged() {
+            const deptId = document.getElementById('deptSelect').value;
+            const currentDept = departmentList.find(d => String(d.id) === String(deptId));
+            document.getElementById('doeEmailInput').value = currentDept?.doe_email || '';
+        }
+
+        async function requestOtp() {
+            const deptId = document.getElementById('deptSelect').value;
+            const email = document.getElementById('doeEmailInput').value;
+            const btn = document.getElementById('sendOtpBtn');
+            const msg = document.getElementById('requestMsg');
+
+            btn.disabled = true;
+            btn.innerText = "DISPATCHING PASSKEY...";
+            msg.classList.remove('hidden', 'text-rose-600', 'text-slate-500');
+
+            try {
+                const res = await fetch('/api/doe/request-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dept_id: deptId, email })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('otpRequestStep').classList.add('hidden');
+                    document.getElementById('otpVerifyStep').classList.remove('hidden');
+                    document.getElementById('otpTargetMsg').innerText = data.message;
+                } else {
+                    msg.classList.add('text-rose-600');
+                    msg.innerText = data.message;
+                }
+            } catch (err) {
+                msg.classList.add('text-rose-600');
+                msg.innerText = "Network error: Unable to request OTP.";
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "SEND VERIFICATION CODE";
+            }
+        }
+
+        async function verifyOtp() {
+            const deptId = document.getElementById('deptSelect').value;
+            const otp = document.getElementById('otpCodeInput').value;
+            const btn = document.getElementById('verifyBtn');
+
+            btn.disabled = true;
+            btn.innerText = "VALIDATING...";
+
+            try {
+                const res = await fetch('/api/doe/verify-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ dept_id: deptId, otp })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    activeToken = data.token;
+                    document.getElementById('otpVerifyStep').classList.add('hidden');
+                    document.getElementById('printConsoleStep').classList.remove('hidden');
+                    document.getElementById('authorizedDeptText').innerText = `✓ Verified: Department of ${data.dept_name}`;
+
+                    // Auto-open PDF if opened via specific email link
+                    if (urlParams.get('date')) {
+                        downloadAuthorizedBatch();
+                    }
+                } else {
+                    alert(data.message);
+                }
+            } catch (err) {
+                alert("Verification failed. Please check connection.");
+            } finally {
+                btn.disabled = false;
+                btn.innerText = "AUTHORIZE & UNLOCK";
+            }
+        }
+
+        function backToRequest() {
+            document.getElementById('otpVerifyStep').classList.add('hidden');
+            document.getElementById('otpRequestStep').classList.remove('hidden');
+        }
+
+        function downloadAuthorizedBatch() {
+            if (!activeToken) return alert("Session expired. Re-authenticate.");
+            const from = document.getElementById('printFrom').value;
+            const to = document.getElementById('printTo').value;
+            const session = document.getElementById('printSession').value;
+            if (!from || !to || from > to) return alert('Choose a valid date range.');
+
+            const url = `/api/doe/reports/batch-slips-pdf?token=${activeToken}&from_date=${from}&to_date=${to}&session=${session}`;
+            window.open(url, '_blank');
+        }
+    </script>
+</body>
+</html>

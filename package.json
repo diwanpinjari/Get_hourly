@@ -1,0 +1,23 @@
+{
+  "name": "hourly-attendance-system",
+  "version": "1.0.0",
+  "description": "",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test",
+    "setup": "node db_setup.js",
+    "add-admin": "node add_admin.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "nodemailer": "^9.0.5",
+    "pdfkit": "^0.19.1",
+    "sqlite3": "^6.0.1"
+  }
+}
