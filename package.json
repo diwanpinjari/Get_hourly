@@ -7,13 +7,18 @@
     "start": "node server.js",
     "test": "node --test",
     "setup": "node db_setup.js",
-    "add-admin": "node add_admin.js"
+    "add-admin": "node add_admin.js",
+    "migrate": "node scripts/migrate-to-turso.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
+    "@libsql/client": "^0.18.0",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "nodemailer": "^9.0.5",

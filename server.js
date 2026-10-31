@@ -1,32 +1,40 @@
 require('dotenv').config();
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
 const PDFDocument = require('pdfkit');
 const nodemailer = require('nodemailer');
 const path = require('path');
 const crypto = require('crypto');
 const { hashPassword, verifyPassword } = require('./lib/auth');
-const { saveAttendance, transaction, run, all } = require('./lib/data');
+const { createDatabase } = require('./lib/db');
+const { saveAttendance, transaction, run, get, all } = require('./lib/data');
+const { createSession, getSession, deleteSession, setOtp, takeOtp, hitRateLimit, cleanup } = require('./lib/store');
 
 const app = express();
+app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3000;
 const dbPath = process.env.DATA_DIR
     ? path.join(process.env.DATA_DIR, 'attendance.db')
     : path.join(__dirname, 'attendance.db');
-const db = new sqlite3.Database(dbPath);
-db.configure('busyTimeout', 5000);
+const db = createDatabase({
+    url: process.env.TURSO_DATABASE_URL || process.env.LIBSQL_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+    filename: dbPath
+});
 
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
-const attempts = new Map();
-app.use('/api', (req, res, next) => {
+app.use('/api', async (req, res, next) => {
     if (/login$|request-otp$|verify-otp$|request-delete-otp$/.test(req.path)) {
         const key = `${req.ip}:${req.path}`;
-        let entry = attempts.get(key);
-        if (!entry || entry.until < Date.now()) attempts.set(key, entry = { count: 0, until: Date.now() + 10 * 60 * 1000 });
-        if (++entry.count > 20) return res.status(429).json({ success: false, message: 'Too many attempts. Retry in ten minutes.' });
+        try {
+            if (!(await hitRateLimit(db, key, 20, 10 * 60 * 1000))) {
+                return res.status(429).json({ success: false, message: 'Too many attempts. Retry in ten minutes.' });
+            }
+        } catch (err) {
+            console.error('Rate limit error:', err.message);
+        }
     }
     next();
 });
@@ -44,49 +52,50 @@ app.use('/api', (req, res, next) => {
     next();
 });
 
-const sessions = new Map();
-function issueSession(res, role, user) {
+async function issueSession(res, role, user) {
     const token = crypto.randomBytes(32).toString('hex');
-    sessions.set(token, { role, user, expiresAt: Date.now() + 8 * 60 * 60 * 1000 });
+    await createSession(db, token, role, user.id, Date.now() + 8 * 60 * 60 * 1000);
     res.cookie(`${role}_session`, token, { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production', maxAge: 8 * 60 * 60 * 1000 });
 }
-app.use('/api', (req, res, next) => {
+app.use('/api', async (req, res, next) => {
     const role = req.path.startsWith('/admin/') && req.path !== '/admin/login' ? 'admin'
         : (/^\/(faculty\/|attendance\/|students$)/.test(req.path) ? 'faculty' : null);
     if (!role) return next();
     const cookie = (req.headers.cookie || '').split(';').map(c => c.trim()).find(c => c.startsWith(`${role}_session=`));
     const token = cookie?.slice(cookie.indexOf('=') + 1);
-    const auth = sessions.get(token);
-    if (!auth || auth.role !== role || Date.now() > auth.expiresAt) {
-        sessions.delete(token);
-        return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
-    }
-    req.auth = auth;
-    if (role === 'admin') req.headers['x-admin-email'] = auth.user.email;
-    if (role === 'faculty') {
-        if (req.query.faculty_id && req.query.faculty_id !== auth.user.id) return res.status(403).json({ message: 'Faculty access denied.' });
-        if (req.body) {
-            req.body.facultyId = auth.user.id;
-            req.body.facultyName = auth.user.name;
-            req.body.faculty_id = auth.user.id;
+    try {
+        const session = await getSession(db, token);
+        if (!session || session.role !== role) {
+            await deleteSession(db, token);
+            return res.status(401).json({ success: false, message: 'Session expired. Please log in again.' });
         }
-    }
-    const table = role === 'admin' ? 'admin_users' : 'faculty';
-    const key = role === 'admin' ? 'admin_id' : 'faculty_id';
-    db.get(`SELECT ${key}, name${role === 'admin' ? ', email' : ''} FROM ${table} WHERE ${key}=?`, [auth.user.id], (err, account) => {
-        if (err || !account) return res.status(401).json({ success: false, message: 'Account unavailable. Please log in again.' });
+        const auth = { user: { id: session.user_id } };
+        req.auth = auth;
+        if (role === 'faculty') {
+            if (req.query.faculty_id && req.query.faculty_id !== auth.user.id) return res.status(403).json({ message: 'Faculty access denied.' });
+            if (req.body) {
+                req.body.facultyId = auth.user.id;
+                req.body.faculty_id = auth.user.id;
+            }
+        }
+        const table = role === 'admin' ? 'admin_users' : 'faculty';
+        const key = role === 'admin' ? 'admin_id' : 'faculty_id';
+        const account = await get(db, `SELECT ${key}, name${role === 'admin' ? ', email' : ''} FROM ${table} WHERE ${key}=?`, [auth.user.id]);
+        if (!account) return res.status(401).json({ success: false, message: 'Account unavailable. Please log in again.' });
         auth.user.name = account.name;
         if (role === 'admin') {
             auth.user.email = account.email;
             req.headers['x-admin-email'] = account.email;
         } else if (req.body) req.body.facultyName = account.name;
         next();
-    });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to verify session.' });
+    }
 });
-app.post('/api/logout', (req, res) => {
+app.post('/api/logout', async (req, res) => {
     for (const role of ['admin', 'faculty']) {
         const cookie = (req.headers.cookie || '').split(';').map(c => c.trim()).find(c => c.startsWith(`${role}_session=`));
-        if (cookie) sessions.delete(cookie.slice(cookie.indexOf('=') + 1));
+        if (cookie) await deleteSession(db, cookie.slice(cookie.indexOf('=') + 1));
         res.clearCookie(`${role}_session`);
     }
     res.json({ success: true });
@@ -122,131 +131,7 @@ function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
 // =========================================================================
 // DATABASE SCHEMA INITIALIZATION & SELF-HEALING MIGRATIONS
 // =========================================================================
-db.serialize(() => {
-    db.run(`PRAGMA foreign_keys = ON;`);
-
-    // Admin Users Table
-    db.run(`CREATE TABLE IF NOT EXISTS admin_users (
-        admin_id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL,
-        password TEXT NOT NULL,
-        role TEXT DEFAULT 'Super Admin',
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-    if (process.env.ADMIN_PASSWORD) db.run(`INSERT OR IGNORE INTO admin_users (admin_id, name, email, password, role)
-            VALUES ('ADMIN01', 'System Administrator', ?, ?, 'Super Admin')`,
-            [process.env.ADMIN_EMAIL || 'admin@college.edu', hashPassword(process.env.ADMIN_PASSWORD)]);
-
-    // Branches / Courses Table
-    db.run(`CREATE TABLE IF NOT EXISTS branches (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT UNIQUE NOT NULL
-    )`);
-
-    // Departments Table
-    db.run(`CREATE TABLE IF NOT EXISTS departments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        branch_id INTEGER NOT NULL,
-        doe_name TEXT DEFAULT '',
-        doe_email TEXT DEFAULT '',
-        FOREIGN KEY(branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-        UNIQUE(name, branch_id)
-    )`);
-
-    // Batch Years Table
-    db.run(`CREATE TABLE IF NOT EXISTS batch_years (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        branch_id INTEGER NOT NULL,
-        FOREIGN KEY(branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-        UNIQUE(name, branch_id)
-    )`);
-
-    // Sections Table
-    db.run(`CREATE TABLE IF NOT EXISTS sections (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        branch_id INTEGER NOT NULL,
-        dept_id INTEGER NOT NULL,
-        batch_year_id INTEGER NOT NULL,
-        FOREIGN KEY(branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-        FOREIGN KEY(dept_id) REFERENCES departments(id) ON DELETE CASCADE,
-        FOREIGN KEY(batch_year_id) REFERENCES batch_years(id) ON DELETE CASCADE,
-        UNIQUE(name, branch_id, dept_id, batch_year_id)
-    )`);
-
-    // Faculty Accounts Table
-    db.run(`CREATE TABLE IF NOT EXISTS faculty (
-        faculty_id TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        password TEXT NOT NULL,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    )`);
-
-    // Mentors Table
-    db.run(`CREATE TABLE IF NOT EXISTS mentors (
-        mentor_id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        email TEXT UNIQUE NOT NULL
-    )`);
-
-    // Section Mentors Mapping Table
-    db.run(`CREATE TABLE IF NOT EXISTS section_mentors (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        branch_id INTEGER NOT NULL,
-        dept_id INTEGER NOT NULL,
-        batch_year_id INTEGER NOT NULL,
-        section_id INTEGER NOT NULL,
-        mentor_id INTEGER NOT NULL,
-        UNIQUE(branch_id, dept_id, batch_year_id, section_id),
-        FOREIGN KEY(branch_id) REFERENCES branches(id) ON DELETE CASCADE,
-        FOREIGN KEY(dept_id) REFERENCES departments(id) ON DELETE CASCADE,
-        FOREIGN KEY(batch_year_id) REFERENCES batch_years(id) ON DELETE CASCADE,
-        FOREIGN KEY(section_id) REFERENCES sections(id) ON DELETE CASCADE,
-        FOREIGN KEY(mentor_id) REFERENCES mentors(mentor_id) ON DELETE CASCADE
-    )`);
-
-    // Students Table
-    db.run(`CREATE TABLE IF NOT EXISTS students (
-        roll_number TEXT PRIMARY KEY,
-        name TEXT NOT NULL,
-        phone_number TEXT DEFAULT '',
-        parent_number TEXT DEFAULT '',
-        branch_id INTEGER,
-        dept_id INTEGER,
-        batch_year_id INTEGER,
-        section_id INTEGER,
-        FOREIGN KEY(branch_id) REFERENCES branches(id) ON DELETE SET NULL,
-        FOREIGN KEY(dept_id) REFERENCES departments(id) ON DELETE SET NULL,
-        FOREIGN KEY(batch_year_id) REFERENCES batch_years(id) ON DELETE SET NULL,
-        FOREIGN KEY(section_id) REFERENCES sections(id) ON DELETE SET NULL
-    )`);
-
-    // Attendance Logs Table
-    db.run(`CREATE TABLE IF NOT EXISTS attendance_logs (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        roll_number TEXT NOT NULL,
-        date TEXT NOT NULL,
-        hour_slot TEXT NOT NULL,
-        subject_name TEXT NOT NULL,
-        status TEXT NOT NULL,
-        faculty_id TEXT NOT NULL,
-        faculty_name TEXT NOT NULL,
-        submission_time TEXT DEFAULT '',
-        branch_id INTEGER,
-        dept_id INTEGER,
-        batch_year_id INTEGER,
-        section_id INTEGER,
-        UNIQUE(roll_number, date, hour_slot)
-    )`);
-
-    // Column migrations
-    db.run(`ALTER TABLE departments ADD COLUMN doe_name TEXT DEFAULT ''`, () => {});
-    db.run(`ALTER TABLE departments ADD COLUMN doe_email TEXT DEFAULT ''`, () => {});
-    db.run(`ALTER TABLE attendance_logs ADD COLUMN submission_time TEXT DEFAULT ''`, () => {});
-});
+const { initializeSchema } = require("./lib/schema");
 
 // Nodemailer Transporter
 const transporter = nodemailer.createTransport({
@@ -256,17 +141,6 @@ const transporter = nodemailer.createTransport({
         pass: process.env.EMAIL_PASS || 'your-app-password'
     }
 });
-
-// In-Memory Token & OTP Stores
-const deleteOtpStore = new Map();
-// In-memory store for DOE OTPs and verified session tokens
-const doeOtpStore = new Map();     // email -> { otp, expiresAt }
-const doeSessionStore = new Map(); // token -> { email, dept_id, expiresAt }
-setInterval(() => {
-    for (const store of [sessions, deleteOtpStore, doeOtpStore, doeSessionStore, attempts]) {
-        for (const [key, value] of store) if ((value.expiresAt || value.until) < Date.now()) store.delete(key);
-    }
-}, 60000).unref();
 
 app.use('/api/admin', async (req, res, next) => {
     if (!['POST', 'PUT'].includes(req.method) || /login|request-delete-otp/.test(req.path)) return next();
@@ -292,16 +166,17 @@ app.use('/api/admin', async (req, res, next) => {
     } catch (err) { res.status(400).json({ success: false, message: err.message }); }
 });
 
-function verifyAdminOtp(adminEmail, inputOtp) {
+async function verifyAdminOtp(adminEmail, inputOtp) {
     if (!adminEmail || !inputOtp) return false;
-    const stored = deleteOtpStore.get(adminEmail.toLowerCase().trim());
-    if (!stored || Date.now() > stored.expiresAt) {
-        deleteOtpStore.delete(adminEmail.toLowerCase().trim());
+    const email = adminEmail.toLowerCase().trim();
+    const stored = await get(db, `SELECT otp, expires_at FROM otp_codes WHERE email = ? AND purpose = 'delete'`, [email]);
+    if (!stored || Date.now() > stored.expires_at) {
+        await run(db, `DELETE FROM otp_codes WHERE email = ? AND purpose = 'delete'`, [email]);
         return false;
     }
-    const isValid = stored.otp === inputOtp.trim();
-    if (isValid) deleteOtpStore.delete(adminEmail.toLowerCase().trim());
-    return isValid;
+    if (stored.otp !== inputOtp.trim()) return false;
+    await run(db, `DELETE FROM otp_codes WHERE email = ? AND purpose = 'delete'`, [email]);
+    return true;
 }
 
 function formatTimeHM(timeStr) {
@@ -325,27 +200,29 @@ function getSlotRoman(slotName) {
 // 1. AUTHENTICATION & ADMIN PROFILE APIs
 // =========================================================================
 
-app.post('/api/login', (req, res) => {
+app.post('/api/login', async (req, res) => {
     const { faculty_id, password } = req.body;
-    db.get(`SELECT faculty_id, name, password FROM faculty WHERE TRIM(UPPER(faculty_id)) = TRIM(UPPER(?))`,
-        [faculty_id], (err, row) => {
-            if (err || !row || !verifyPassword(password, row.password)) return res.status(401).json({ success: false, message: 'Invalid Faculty Credentials' });
-            issueSession(res, 'faculty', { id: row.faculty_id, name: row.name });
-            res.json({ success: true, faculty: { id: row.faculty_id, name: row.name } });
-        }
-    );
+    try {
+        const row = await get(db, `SELECT faculty_id, name, password FROM faculty WHERE TRIM(UPPER(faculty_id)) = TRIM(UPPER(?))`, [faculty_id]);
+        if (!row || !verifyPassword(password, row.password)) return res.status(401).json({ success: false, message: 'Invalid Faculty Credentials' });
+        await issueSession(res, 'faculty', { id: row.faculty_id, name: row.name });
+        res.json({ success: true, faculty: { id: row.faculty_id, name: row.name } });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Login unavailable. Please retry.' });
+    }
 });
 
-app.post('/api/admin/login', (req, res) => {
+app.post('/api/admin/login', async (req, res) => {
     const { username, password } = req.body;
     if (!username || !password) return res.status(400).json({ success: false, message: 'Enter both Admin ID and Password.' });
-    db.get(`SELECT admin_id, name, email, role, password FROM admin_users WHERE TRIM(UPPER(admin_id)) = TRIM(UPPER(?))`,
-        [username.trim()], (err, row) => {
-            if (err || !row || !verifyPassword(password.trim(), row.password)) return res.status(401).json({ success: false, message: 'Invalid Admin Credentials' });
-            issueSession(res, 'admin', { id: row.admin_id, email: row.email });
-            res.json({ success: true, admin: { id: row.admin_id, name: row.name, email: row.email, role: row.role } });
-        }
-    );
+    try {
+        const row = await get(db, `SELECT admin_id, name, email, role, password FROM admin_users WHERE TRIM(UPPER(admin_id)) = TRIM(UPPER(?))`, [username.trim()]);
+        if (!row || !verifyPassword(password.trim(), row.password)) return res.status(401).json({ success: false, message: 'Invalid Admin Credentials' });
+        await issueSession(res, 'admin', { id: row.admin_id, email: row.email });
+        res.json({ success: true, admin: { id: row.admin_id, name: row.name, email: row.email, role: row.role } });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Login unavailable. Please retry.' });
+    }
 });
 
 app.get('/api/admin/admins', (req, res) => {
@@ -400,7 +277,7 @@ app.post('/api/admin/request-delete-otp', async (req, res) => {
 
     const generatedOtp = crypto.randomInt(100000, 1000000).toString();
     const expiresAt = Date.now() + 5 * 60 * 1000;
-    deleteOtpStore.set(admin_email.toLowerCase().trim(), { otp: generatedOtp, expiresAt });
+    await setOtp(db, admin_email.toLowerCase().trim(), 'delete', generatedOtp, expiresAt);
 
     try {
         await transporter.sendMail({
@@ -411,7 +288,7 @@ app.post('/api/admin/request-delete-otp', async (req, res) => {
         });
         res.json({ success: true, message: `Deletion OTP sent to ${admin_email}` });
     } catch (err) {
-        deleteOtpStore.delete(admin_email.toLowerCase().trim());
+        await takeOtp(db, admin_email.toLowerCase().trim(), 'delete').catch(() => {});
         res.status(502).json({ success: false, message: 'Unable to send deletion OTP. Check email configuration.' });
     }
 });
@@ -483,8 +360,8 @@ app.put('/api/admin/branches/:id', (req, res) => {
         res.json({ success: true, message: 'Course updated.' });
     });
 });
-app.delete('/api/admin/branches/:id', (req, res) => {
-    if (!verifyAdminOtp(req.headers['x-admin-email'], req.headers['x-delete-otp'])) {
+app.delete('/api/admin/branches/:id', async (req, res) => {
+    if (!(await verifyAdminOtp(req.headers['x-admin-email'], req.headers['x-delete-otp']))) {
         return res.status(401).json({ success: false, message: 'Invalid or expired OTP.' });
     }
     db.run(`DELETE FROM branches WHERE id = ?`, [req.params.id], err => {
@@ -522,8 +399,8 @@ app.put('/api/admin/departments/:id/doe', (req, res) => {
         }
     );
 });
-app.delete('/api/admin/departments/:id', (req, res) => {
-    if (!verifyAdminOtp(req.headers['x-admin-email'], req.headers['x-delete-otp'])) {
+app.delete('/api/admin/departments/:id', async (req, res) => {
+    if (!(await verifyAdminOtp(req.headers['x-admin-email'], req.headers['x-delete-otp']))) {
         return res.status(401).json({ success: false, message: 'Invalid or expired OTP.' });
     }
     db.run(`DELETE FROM departments WHERE id = ?`, [req.params.id], err => {
@@ -546,8 +423,8 @@ app.put('/api/admin/batch-years/:id', (req, res) => {
         res.json({ success: true, message: 'Batch Year updated.' });
     });
 });
-app.delete('/api/admin/batch-years/:id', (req, res) => {
-    if (!verifyAdminOtp(req.headers['x-admin-email'], req.headers['x-delete-otp'])) {
+app.delete('/api/admin/batch-years/:id', async (req, res) => {
+    if (!(await verifyAdminOtp(req.headers['x-admin-email'], req.headers['x-delete-otp']))) {
         return res.status(401).json({ success: false, message: 'Invalid or expired OTP.' });
     }
     db.run(`DELETE FROM batch_years WHERE id = ?`, [req.params.id], err => {
@@ -572,8 +449,8 @@ app.put('/api/admin/sections/:id', (req, res) => {
         res.json({ success: true, message: 'Section updated.' });
     });
 });
-app.delete('/api/admin/sections/:id', (req, res) => {
-    if (!verifyAdminOtp(req.headers['x-admin-email'], req.headers['x-delete-otp'])) {
+app.delete('/api/admin/sections/:id', async (req, res) => {
+    if (!(await verifyAdminOtp(req.headers['x-admin-email'], req.headers['x-delete-otp']))) {
         return res.status(401).json({ success: false, message: 'Invalid or expired OTP.' });
     }
     db.run(`DELETE FROM sections WHERE id = ?`, [req.params.id], err => {
@@ -690,7 +567,7 @@ app.post('/api/admin/students/bulk', async (req, res) => {
     }
     if (new Set(students.map(s => s.roll_number.trim().toUpperCase())).size !== students.length) return res.status(400).json({ success: false, message: 'Duplicate roll numbers in import.' });
     try {
-    await transaction(dbPath, async connection => {
+    await transaction(db, async connection => {
     const sections = await all(connection, 'SELECT id FROM sections WHERE id=? AND branch_id=? AND dept_id=? AND batch_year_id=?', [section_id, branch_id, dept_id, batch_year_id]);
     if (!sections.length) throw new Error('Select a valid class section.');
     const query = `
@@ -1022,7 +899,7 @@ app.get('/api/faculty/daily-progress', (req, res) => {
     });
 });
 
-app.post('/api/attendance/submit', (req, res) => {
+app.post('/api/attendance/submit', async (req, res) => {
     const { facultyId, facultyName, subjectName, hourSlot, date, classDetails, attendance, classroomPhoto, location } = req.body;
     if (!classDetails || !['branch_id', 'dept_id', 'batch_year_id', 'section_id'].every(k => Number.isInteger(Number(classDetails[k])) && Number(classDetails[k]) > 0)
         || typeof subjectName !== 'string' || !subjectName.trim() || !/^Hour [1-6]$/.test(hourSlot)
@@ -1060,9 +937,21 @@ app.post('/api/attendance/submit', (req, res) => {
         WHERE branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ? AND hour_slot = ? AND date = ? LIMIT 1
     `;
 
-    db.get(lockCheckQuery, [classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id, hourSlot, date], (err, existingLock) => {
-        if (err) return res.status(500).json({ success: false, message: 'Database lock verification error.' });
+    const sectionQuery = `
+        SELECT sm.mentor_id, m.name AS mentor_name, m.email AS mentor_email,
+               b.name as branch_name, d.name as dept_name, d.doe_name, d.doe_email,
+               by.name as batch_year_name, s.name as sec_name
+        FROM section_mentors sm
+        JOIN mentors m ON sm.mentor_id = m.mentor_id
+        JOIN branches b ON sm.branch_id = b.id
+        JOIN departments d ON sm.dept_id = d.id
+        JOIN batch_years by ON sm.batch_year_id = by.id
+        JOIN sections s ON sm.section_id = s.id
+        WHERE sm.branch_id = ? AND sm.dept_id = ? AND sm.batch_year_id = ? AND sm.section_id = ?
+    `;
 
+    try {
+        const existingLock = await get(db, lockCheckQuery, [classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id, hourSlot, date]);
         if (existingLock && existingLock.faculty_id !== facultyId) {
             return res.status(403).json({
                 success: false,
@@ -1070,138 +959,120 @@ app.post('/api/attendance/submit', (req, res) => {
             });
         }
 
-        const sectionQuery = `
-            SELECT sm.mentor_id, m.name AS mentor_name, m.email AS mentor_email,
-                   b.name as branch_name, d.name as dept_name, d.doe_name, d.doe_email,
-                   by.name as batch_year_name, s.name as sec_name
-            FROM section_mentors sm
-            JOIN mentors m ON sm.mentor_id = m.mentor_id
-            JOIN branches b ON sm.branch_id = b.id
-            JOIN departments d ON sm.dept_id = d.id
-            JOIN batch_years by ON sm.batch_year_id = by.id
-            JOIN sections s ON sm.section_id = s.id
-            WHERE sm.branch_id = ? AND sm.dept_id = ? AND sm.batch_year_id = ? AND sm.section_id = ?
+        const sectionInfo = await get(db, sectionQuery, [classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id]);
+        if (!sectionInfo) {
+            return res.status(400).json({ success: false, message: "No mentor assigned to this section. Contact administrator." });
+        }
+
+        try {
+            await saveAttendance(db, req.body, submissionTime);
+        } catch (writeError) {
+            return res.status(409).json({ success: false, message: writeError.message });
+        }
+
+        let photoBuffer = null;
+        try {
+            const cleanBase64 = classroomPhoto.replace(/^data:image\/\w+;base64,/, "");
+            photoBuffer = Buffer.from(cleanBase64, 'base64');
+        } catch (bErr) {
+            console.error("Photo base64 error:", bErr.message);
+        }
+
+        const logsQuery = `
+            SELECT hour_slot, subject_name, faculty_name, roll_number, status, submission_time
+            FROM attendance_logs
+            WHERE date = ? AND branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ?
+            ORDER BY hour_slot ASC, roll_number ASC
         `;
+        const allTodayLogs = await all(db, logsQuery, [date, classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id]);
+        const enrolledStudents = await all(db, `SELECT roll_number FROM students WHERE branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ? ORDER BY roll_number ASC`,
+            [classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id]);
 
-        db.get(sectionQuery, [classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id], async (err, sectionInfo) => {
-            if (err || !sectionInfo) {
-                return res.status(400).json({ success: false, message: "No mentor assigned to this section. Contact administrator." });
-            }
-
-            try {
-                await saveAttendance(dbPath, req.body, submissionTime);
-            } catch (writeError) {
-                return res.status(409).json({ success: false, message: writeError.message });
-            }
-
-                res.json({ success: true, message: `Attendance for ${hourSlot} recorded successfully!` });
-
-                let photoBuffer = null;
-                try {
-                    const cleanBase64 = classroomPhoto.replace(/^data:image\/\w+;base64,/, "");
-                    photoBuffer = Buffer.from(cleanBase64, 'base64');
-                } catch (bErr) {
-                    console.error("Photo base64 error:", bErr.message);
-                }
-
-                const logsQuery = `
-                    SELECT hour_slot, subject_name, faculty_name, roll_number, status, submission_time
-                    FROM attendance_logs
-                    WHERE date = ? AND branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ?
-                    ORDER BY hour_slot ASC, roll_number ASC
-                `;
-
-                db.all(logsQuery, [date, classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id], async (err, allTodayLogs) => {
-                    if (err) return;
-
-                    db.all(`SELECT roll_number FROM students WHERE branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ? ORDER BY roll_number ASC`,
-                        [classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id], async (err, enrolledStudents) => {
-                            try {
-                                // 1. Dispatch Mentor Report (Full 6-Period Table + Watermarked Photo)
-                                const mentorPdfBuffer = await generateSinglePageHorizontalPDF(sectionInfo, date, allTodayLogs, enrolledStudents || []);
-                                const mentorAttachments = [{ filename: `Attendance_Statement_${date}.pdf`, content: mentorPdfBuffer }];
-                                if (photoBuffer) {
-                                    mentorAttachments.push({
-                                        filename: `Classroom_Proof_${date}_${hourSlot.replace(/\s+/g, '_')}.jpg`,
-                                        content: photoBuffer
-                                    });
-                                }
-
-                                await transporter.sendMail({
-                                    from: '"ACE College Attendance" <no-reply@college.edu>',
-                                    to: sectionInfo.mentor_email,
-                                    subject: `[Attendance Statement + Photo] ${sectionInfo.branch_name} ${sectionInfo.dept_name} Sec-${sectionInfo.sec_name} (${hourSlot})`,
-                                    text: `Respected Mentor (${sectionInfo.mentor_name}),\n\nAttendance for ${hourSlot} was recorded at ${submissionTime} by ${facultyName}.\n\nAttached is the official statement and watermarked classroom photo.`,
-                                    attachments: mentorAttachments
-                                }).catch(err => console.error('Mentor email dispatch failed:', err.message));
-
-                                // 2. Dynamic First-Period DOE Dispatch
-                                const morningHours = ['Hour 1', 'Hour 2', 'Hour 3'];
-                                const afternoonHours = ['Hour 4', 'Hour 5', 'Hour 6'];
-                                let isDoeTarget = false;
-                                let sessionType = '';
-
-                                if (morningHours.includes(hourSlot)) {
-                                    sessionType = 'Morning';
-                                    const currentIndex = morningHours.indexOf(hourSlot);
-                                    const priorMorningHours = morningHours.slice(0, currentIndex);
-                                    if (attendance[0].status !== 'Leisure' && !allTodayLogs.some(log => priorMorningHours.includes(log.hour_slot) && log.status !== 'Leisure')) isDoeTarget = true;
-                                } else if (afternoonHours.includes(hourSlot)) {
-                                    sessionType = 'Afternoon';
-                                    const currentIndex = afternoonHours.indexOf(hourSlot);
-                                    const priorAfternoonHours = afternoonHours.slice(0, currentIndex);
-                                    if (attendance[0].status !== 'Leisure' && !allTodayLogs.some(log => priorAfternoonHours.includes(log.hour_slot) && log.status !== 'Leisure')) isDoeTarget = true;
-                                }
-
-                                if (isDoeTarget && sectionInfo.doe_email) {
-                                    const currentSlotLogs = allTodayLogs.filter(l => l.hour_slot === hourSlot);
-                                    const doePdfBuffer = await generateDoeSingleSlipPDF(sectionInfo, date, hourSlot, sessionType, currentSlotLogs, enrolledStudents || []);
-
-                                    const appBaseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
-                                    const currentSessionCode = sessionType === 'Morning' ? 'FN' : 'AN';
-
-                                    // Secure verification link mapped to this specific department and session
-                                    const doeSecureLink = `${appBaseUrl}/doe?dept_id=${classDetails.dept_id}&date=${date}&session=${currentSessionCode}`;
-
-                                    await transporter.sendMail({
-                                        from: '"Directorate of Evaluation" <no-reply@college.edu>',
-                                        to: sectionInfo.doe_email,
-                                        subject: `[DOE Attendance Slip - ${currentSessionCode}] ${sectionInfo.dept_name} Sec-${sectionInfo.sec_name} (${hourSlot})`,
-                                        html: `
-                                            <div style="font-family: sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 12px; max-width: 580px;">
-                                                <h3 style="color: #0f172a; margin-top: 0;">ACE Engineering College — Directorate of Evaluation</h3>
-                                                <p style="font-size: 13px; color: #334155;">
-                                                    First conducted period recorded for <strong>Department of ${sectionInfo.dept_name}</strong>:
-                                                </p>
-                                                <ul style="font-size: 12px; color: #475569; line-height: 1.6;">
-                                                    <li><strong>Session:</strong> ${sessionType} (${currentSessionCode}) — ${hourSlot}</li>
-                                                    <li><strong>Subject:</strong> ${subjectName}</li>
-                                                    <li><strong>Faculty:</strong> ${facultyName} (${facultyId})</li>
-                                                    <li><strong>Submission Time:</strong> ${formatTimeHM(submissionTime)}</li>
-                                                </ul>
-                                                <div style="margin: 22px 0;">
-                                                    <a href="${doeSecureLink}" style="background-color: #1e3a8a; color: #ffffff; padding: 11px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: inline-block;">
-                                                        🛡️ Authenticate &amp; Print 8-Up Slips (A4) &rarr;
-                                                    </a>
-                                                </div>
-                                                <p style="font-size: 11px; color: #64748b;">
-                                                    * For security compliance, an OTP will be dispatched to this email address (${sectionInfo.doe_email}) upon opening the link.
-                                                </p>
-                                            </div>
-                                        `,
-                                        attachments: [
-                                            { filename: `DOE_Chit_${currentSessionCode}_${date}.pdf`, content: doePdfBuffer }
-                                        ]
-                                    });
-                                }
-                            } catch (e) {
-                                console.error("Email dispatch failed:", e.message);
-                            }
-                        }
-                    );
+        // Dispatch reports after the database write, but before responding so serverless
+        // runtimes do not freeze the function mid-email.
+        try {
+            const mentorPdfBuffer = await generateSinglePageHorizontalPDF(sectionInfo, date, allTodayLogs, enrolledStudents || []);
+            const mentorAttachments = [{ filename: `Attendance_Statement_${date}.pdf`, content: mentorPdfBuffer }];
+            if (photoBuffer) {
+                mentorAttachments.push({
+                    filename: `Classroom_Proof_${date}_${hourSlot.replace(/\s+/g, '_')}.jpg`,
+                    content: photoBuffer
                 });
-        });
-    });
+            }
+
+            await transporter.sendMail({
+                from: '"ACE College Attendance" <no-reply@college.edu>',
+                to: sectionInfo.mentor_email,
+                subject: `[Attendance Statement + Photo] ${sectionInfo.branch_name} ${sectionInfo.dept_name} Sec-${sectionInfo.sec_name} (${hourSlot})`,
+                text: `Respected Mentor (${sectionInfo.mentor_name}),\n\nAttendance for ${hourSlot} was recorded at ${submissionTime} by ${facultyName}.\n\nAttached is the official statement and watermarked classroom photo.`,
+                attachments: mentorAttachments
+            });
+
+            const morningHours = ['Hour 1', 'Hour 2', 'Hour 3'];
+            const afternoonHours = ['Hour 4', 'Hour 5', 'Hour 6'];
+            let isDoeTarget = false;
+            let sessionType = '';
+
+            if (morningHours.includes(hourSlot)) {
+                sessionType = 'Morning';
+                const currentIndex = morningHours.indexOf(hourSlot);
+                const priorMorningHours = morningHours.slice(0, currentIndex);
+                if (attendance[0].status !== 'Leisure' && !allTodayLogs.some(log => priorMorningHours.includes(log.hour_slot) && log.status !== 'Leisure')) isDoeTarget = true;
+            } else if (afternoonHours.includes(hourSlot)) {
+                sessionType = 'Afternoon';
+                const currentIndex = afternoonHours.indexOf(hourSlot);
+                const priorAfternoonHours = afternoonHours.slice(0, currentIndex);
+                if (attendance[0].status !== 'Leisure' && !allTodayLogs.some(log => priorAfternoonHours.includes(log.hour_slot) && log.status !== 'Leisure')) isDoeTarget = true;
+            }
+
+            if (isDoeTarget && sectionInfo.doe_email) {
+                const currentSlotLogs = allTodayLogs.filter(l => l.hour_slot === hourSlot);
+                const doePdfBuffer = await generateDoeSingleSlipPDF(sectionInfo, date, hourSlot, sessionType, currentSlotLogs, enrolledStudents || []);
+
+                const appBaseUrl = process.env.APP_URL || `${req.protocol}://${req.get('host')}`;
+                const currentSessionCode = sessionType === 'Morning' ? 'FN' : 'AN';
+                const doeSecureLink = `${appBaseUrl}/doe?dept_id=${classDetails.dept_id}&date=${date}&session=${currentSessionCode}`;
+
+                await transporter.sendMail({
+                    from: '"Directorate of Evaluation" <no-reply@college.edu>',
+                    to: sectionInfo.doe_email,
+                    subject: `[DOE Attendance Slip - ${currentSessionCode}] ${sectionInfo.dept_name} Sec-${sectionInfo.sec_name} (${hourSlot})`,
+                    html: `
+                        <div style="font-family: sans-serif; padding: 20px; border: 1px solid #cbd5e1; border-radius: 12px; max-width: 580px;">
+                            <h3 style="color: #0f172a; margin-top: 0;">ACE Engineering College — Directorate of Evaluation</h3>
+                            <p style="font-size: 13px; color: #334155;">
+                                First conducted period recorded for <strong>Department of ${sectionInfo.dept_name}</strong>:
+                            </p>
+                            <ul style="font-size: 12px; color: #475569; line-height: 1.6;">
+                                <li><strong>Session:</strong> ${sessionType} (${currentSessionCode}) — ${hourSlot}</li>
+                                <li><strong>Subject:</strong> ${subjectName}</li>
+                                <li><strong>Faculty:</strong> ${facultyName} (${facultyId})</li>
+                                <li><strong>Submission Time:</strong> ${formatTimeHM(submissionTime)}</li>
+                            </ul>
+                            <div style="margin: 22px 0;">
+                                <a href="${doeSecureLink}" style="background-color: #1e3a8a; color: #ffffff; padding: 11px 20px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 13px; display: inline-block;">
+                                    🛡️ Authenticate &amp; Print 8-Up Slips (A4) &rarr;
+                                </a>
+                            </div>
+                            <p style="font-size: 11px; color: #64748b;">
+                                * For security compliance, an OTP will be dispatched to this email address (${sectionInfo.doe_email}) upon opening the link.
+                            </p>
+                        </div>
+                    `,
+                    attachments: [
+                        { filename: `DOE_Chit_${currentSessionCode}_${date}.pdf`, content: doePdfBuffer }
+                    ]
+                });
+            }
+        } catch (emailError) {
+            console.error("Email dispatch failed:", emailError.message);
+        }
+
+        res.json({ success: true, message: `Attendance for ${hourSlot} recorded successfully!` });
+    } catch (err) {
+        console.error('Attendance submission error:', err.message);
+        if (!res.headersSent) res.status(500).json({ success: false, message: 'Unable to record attendance. Please retry.' });
+    }
 });
 
 // =========================================================================
@@ -1209,12 +1080,12 @@ app.post('/api/attendance/submit', (req, res) => {
 // =========================================================================
 
 // 1. Send OTP to Respective Department DOE
-app.post('/api/doe/request-otp', (req, res) => {
+app.post('/api/doe/request-otp', async (req, res) => {
     const { dept_id, email } = req.body;
 
-    // Verify email belongs to the selected department
-    db.get(`SELECT id, name, doe_name, doe_email FROM departments WHERE id = ?`, [dept_id], async (err, dept) => {
-        if (err || !dept || !dept.doe_email) {
+    try {
+        const dept = await get(db, `SELECT id, name, doe_name, doe_email FROM departments WHERE id = ?`, [dept_id]);
+        if (!dept || !dept.doe_email) {
             return res.status(404).json({ success: false, message: 'Department or registered DOE email not found.' });
         }
 
@@ -1228,7 +1099,7 @@ app.post('/api/doe/request-otp', (req, res) => {
         const otp = crypto.randomInt(100000, 1000000).toString();
         const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes validity
 
-        doeOtpStore.set(registeredEmail, { otp, dept_id: dept.id, expiresAt });
+        await setOtp(db, registeredEmail, 'doe', otp, expiresAt, dept.id);
 
         try {
             await transporter.sendMail({
@@ -1239,24 +1110,26 @@ app.post('/api/doe/request-otp', (req, res) => {
             });
             res.json({ success: true, message: `Access OTP sent to registered DOE email (${registeredEmail.replace(/(.{2})(.*)(@.*)/, "$1***$3")})` });
         } catch (mailErr) {
-            doeOtpStore.delete(registeredEmail);
+            await takeOtp(db, registeredEmail, 'doe').catch(() => {});
             res.status(500).json({ success: false, message: 'Failed to send OTP email: ' + mailErr.message });
         }
-    });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to request OTP.' });
+    }
 });
 
 // 2. Verify OTP & Issue Department-Restricted Access Token
-app.post('/api/doe/verify-otp', (req, res) => {
+app.post('/api/doe/verify-otp', async (req, res) => {
     const { dept_id, otp } = req.body;
 
-    db.get(`SELECT id, name, doe_email FROM departments WHERE id = ?`, [dept_id], (err, dept) => {
-        if (err || !dept) return res.status(404).json({ success: false, message: 'Department not found.' });
+    try {
+        const dept = await get(db, `SELECT id, name, doe_email FROM departments WHERE id = ?`, [dept_id]);
+        if (!dept || !dept.doe_email) return res.status(404).json({ success: false, message: 'Department not found.' });
 
         const registeredEmail = dept.doe_email.toLowerCase().trim();
-        const record = doeOtpStore.get(registeredEmail);
+        const record = await get(db, `SELECT otp, dept_id, expires_at FROM otp_codes WHERE email = ? AND purpose = 'doe'`, [registeredEmail]);
 
-        if (!record || record.dept_id !== dept.id || Date.now() > record.expiresAt) {
-            doeOtpStore.delete(registeredEmail);
+        if (!record || record.dept_id !== dept.id || Date.now() > record.expires_at) {
             return res.status(401).json({ success: false, message: 'OTP has expired. Please request a new code.' });
         }
 
@@ -1265,25 +1138,25 @@ app.post('/api/doe/verify-otp', (req, res) => {
         }
 
         // Clean up OTP and issue short-lived session token (valid 2 hours)
-        doeOtpStore.delete(registeredEmail);
+        await takeOtp(db, registeredEmail, 'doe');
         const token = crypto.randomBytes(32).toString('hex');
-        doeSessionStore.set(token, {
-            email: registeredEmail,
-            dept_id: dept.id,
-            dept_name: dept.name,
-            expiresAt: Date.now() + 2 * 60 * 60 * 1000
+        await createSession(db, token, 'doe', registeredEmail, Date.now() + 2 * 60 * 60 * 1000, {
+            deptId: dept.id,
+            meta: dept.name
         });
 
         res.json({ success: true, token, dept_id: dept.id, dept_name: dept.name });
-    });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to verify OTP.' });
+    }
 });
 
 // 3. Batch PDF Route (Restricted Strictly to Token's Authorized Department)
-app.get('/api/doe/reports/batch-slips-pdf', (req, res) => {
+app.get('/api/doe/reports/batch-slips-pdf', async (req, res) => {
     const { token, from_date, to_date, session } = req.query;
 
-    const auth = doeSessionStore.get(token);
-    if (!auth || Date.now() > auth.expiresAt) {
+    const auth = await getSession(db, token);
+    if (!auth || auth.role !== 'doe') {
         return res.status(401).send("Unauthorized: Invalid or expired DOE session. Please authenticate via email OTP.");
     }
 
@@ -1322,12 +1195,12 @@ app.get('/api/doe/reports/batch-slips-pdf', (req, res) => {
 
     db.all(query, params, (err, sessions) => {
         if (err || !sessions || sessions.length === 0) {
-            return res.status(404).send(`No attendance slips recorded for Department of ${auth.dept_name} in this date range.`);
+            return res.status(404).send(`No attendance slips recorded for Department of ${auth.meta} in this date range.`);
         }
 
         const doc = new PDFDocument({ margin: 0, size: 'A4', layout: 'portrait' });
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `inline; filename=DOE_${auth.dept_name}_Slips_${targetFrom}.pdf`);
+        res.setHeader('Content-Disposition', `inline; filename=DOE_${auth.meta}_Slips_${targetFrom}.pdf`);
         doc.pipe(res);
 
         const slipW = 275;
@@ -1631,6 +1504,10 @@ app.use((err, req, res, next) => {
 });
 
 async function initialize() {
+    if (process.env.VERCEL && !process.env.TURSO_DATABASE_URL && !process.env.LIBSQL_URL) {
+        throw new Error('TURSO_DATABASE_URL is required on Vercel. SQLite files do not persist in serverless hosting.');
+    }
+    await initializeSchema(db);
     // Upgrade existing accounts without changing their passwords.
     for (const [table, key] of [['admin_users', 'admin_id'], ['faculty', 'faculty_id']]) {
         const accounts = await all(db, `SELECT ${key} AS id, password FROM ${table}`);
@@ -1638,6 +1515,7 @@ async function initialize() {
             if (!account.password.startsWith('scrypt$')) await run(db, `UPDATE ${table} SET password=? WHERE ${key}=?`, [hashPassword(account.password), account.id]);
         }
     }
+    await cleanup(db);
 }
 async function start() {
     await initialize();

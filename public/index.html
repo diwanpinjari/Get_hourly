@@ -808,11 +808,17 @@ function getDeviceCoordinates() {
             }
         }
 
+        function sizeSnapshotCanvas(canvas, width, height) {
+            // Keep uploads small enough for hosted request limits.
+            const scale = Math.min(1, 1600 / Math.max(width, height));
+            canvas.width = Math.max(1, Math.round(width * scale));
+            canvas.height = Math.max(1, Math.round(height * scale));
+        }
+
         function snapPhotoFromStream() {
             const video = document.getElementById('videoFeed');
             const canvas = document.getElementById('snapshotCanvas');
-            canvas.width = video.videoWidth || 640;
-            canvas.height = video.videoHeight || 480;
+            sizeSnapshotCanvas(canvas, video.videoWidth || 640, video.videoHeight || 480);
 
             const ctx = canvas.getContext('2d');
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -838,10 +844,9 @@ function getDeviceCoordinates() {
                 const img = new Image();
                 img.onload = function() {
                     const canvas = document.getElementById('snapshotCanvas');
-                    canvas.width = img.width;
-                    canvas.height = img.height;
+                    sizeSnapshotCanvas(canvas, img.width, img.height);
                     const ctx = canvas.getContext('2d');
-                    ctx.drawImage(img, 0, 0);
+                    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
 
                     burnWatermark(ctx, canvas.width, canvas.height);
 

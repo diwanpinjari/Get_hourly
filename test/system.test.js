@@ -8,6 +8,7 @@ const { once } = require('node:events');
 
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'attendance-test-'));
 process.env.DATA_DIR = temporary;
+process.env.TURSO_DATABASE_URL = 'file:' + path.join(temporary, 'attendance.db');
 process.env.PORT = '0';
 process.env.ADMIN_PASSWORD = 'test-password';
 process.env.ADMIN_EMAIL = 'admin@example.test';
@@ -17,7 +18,7 @@ process.env.CAMPUS_RADIUS_METERS = '1000';
 const messages = [];
 let failMail = false;
 require('nodemailer').createTransport = () => ({ sendMail: async message => { if (failMail) throw new Error('Mock SMTP failure'); messages.push(message); return {}; } });
-const { start, db } = require('../server');
+const { start, initialize, db } = require('../server');
 const { all, run } = require('../lib/data');
 let server, base, adminCookie, facultyCookie;
 let classDetails;
@@ -27,9 +28,10 @@ async function request(url, method = 'GET', body, cookie = adminCookie) {
     return { status: response.status, cookie: response.headers.get('set-cookie')?.split(';')[0], data: type.includes('json') ? await response.json() : Buffer.from(await response.arrayBuffer()) };
 }
 before(async () => {
-    await run(db, "INSERT INTO faculty (faculty_id,name,password) VALUES ('LEGACY','Legacy','old-password')");
     server = await start();
     if (!server.listening) await once(server, 'listening');
+    await run(db, "INSERT INTO faculty (faculty_id,name,password) VALUES ('LEGACY','Legacy','old-password')");
+    await initialize();
     base = `http://127.0.0.1:${server.address().port}`;
     const login = await request('/api/admin/login', 'POST', { username: 'ADMIN01', password: 'test-password' }, null);
     assert.equal(login.status, 200);
@@ -50,7 +52,11 @@ before(async () => {
 after(async () => {
     if (server) await new Promise(resolve => server.close(resolve));
     await new Promise(resolve => db.close(resolve));
-    fs.rmSync(temporary, { recursive: true, force: true });
+    try {
+        fs.rmSync(temporary, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    } catch {
+        // Windows may keep the temporary SQLite file locked briefly.
+    }
 });
 
 function payload(hourSlot = 'Hour 1') {
