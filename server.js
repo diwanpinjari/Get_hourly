@@ -43,7 +43,7 @@ function validDate(value) {
     return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value;
 }
 app.use('/api', (req, res, next) => {
-    if (['POST', 'PUT'].includes(req.method) && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) return res.status(400).json({ success: false, message: 'JSON object required.' });
+    if (['POST', 'PUT'].includes(req.method) && req.path !== '/logout' && (!req.body || typeof req.body !== 'object' || Array.isArray(req.body))) return res.status(400).json({ success: false, message: 'JSON object required.' });
     for (const field of ['name', 'email', 'password', 'username', 'faculty_id', 'admin_id', 'doe_name', 'doe_email', 'otp', 'subjectName']) {
         if (req.body?.[field] !== undefined && typeof req.body[field] !== 'string') return res.status(400).json({ success: false, message: `Invalid ${field}.` });
     }

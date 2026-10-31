@@ -163,7 +163,7 @@ test('all frontend scripts parse, and submission uses actual roster and leisure 
     assert.deepEqual(submitted.attendance, [{ roll_number: 'S001', status: 'Leisure' }]);
 });
 test('logout invalidates server session', async () => {
-    assert.equal((await request('/api/logout', 'POST', {}, facultyCookie)).status, 200);
+    assert.equal((await request('/api/logout', 'POST', undefined, facultyCookie)).status, 200);
     assert.equal((await request('/api/faculty/daily-progress', 'GET', undefined, facultyCookie)).status, 401);
 });
 test('CSV quoting and names containing apostrophes round-trip safely', () => {

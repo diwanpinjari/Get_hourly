@@ -1,16 +1,18 @@
 {
   "version": 2,
-  "functions": {
-    "api/index.js": {
-      "maxDuration": 60,
-      "memory": 1024,
-      "includeFiles": "public/**"
-    }
-  },
-  "rewrites": [
+  "builds": [
     {
-      "source": "/(.*)",
-      "destination": "/api/index"
+      "src": "api/index.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": ["public/**"]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/api/index.js"
     }
   ]
 }
