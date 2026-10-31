@@ -2,6 +2,8 @@
 
 Node.js/Express and SQLite application for ACE faculty attendance, administration, mentor reports, and DOE slips.
 
+**Live deployment:** https://hourly-attendance-system.vercel.app
+
 ## Run locally
 
 1. Install Node.js 22 or newer and run `npm ci`.
@@ -32,7 +34,7 @@ Vercel functions have no persistent filesystem, so production data lives in [Tur
    - `NODE_ENV=production`
 5. Deploy. The first request creates the schema in Turso automatically.
 
-`npm start` still uses a local `attendance.db` when `TURSO_DATABASE_URL` is not set. Vercel requests are capped at roughly 4.5 MB; the faculty portal compresses classroom photos before upload.
+`npm start` uses a local `attendance.db` when `TURSO_DATABASE_URL` is not set. If `TURSO_DATABASE_URL` is present in `.env`, the local server connects to the same hosted database as production, so changes are shared across devices. Vercel requests are capped at roughly 4.5 MB; the faculty portal compresses classroom photos before upload.
 
 ## Verification
 
