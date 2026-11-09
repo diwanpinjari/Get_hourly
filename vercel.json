@@ -14,5 +14,11 @@
       "src": "/(.*)",
       "dest": "/api/index.js"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/daily-call-list",
+      "schedule": "30 13 * * *"
+    }
   ]
 }

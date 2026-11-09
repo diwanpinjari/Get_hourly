@@ -205,14 +205,73 @@ test('mentor can sign in with an email OTP', async () => {
     assert.equal((await request('/api/mentor/verify-otp', 'POST', { email: 'mentor@example.test', otp }, null)).status, 401);
 });
 
-test('attendance emails include the below-threshold call-list CSV', async () => {
+test('hourly attendance emails include the statement and photo but not the call-list CSV', async () => {
     const freshCookie = (await request('/api/login', 'POST', { faculty_id: 'F1', password: 'faculty-pass' }, null)).cookie;
     assert.equal((await request('/api/attendance/submit', 'POST', payload('Hour 4'), freshCookie)).status, 200);
     const mail = messages.findLast(message => message.subject.includes('Attendance Statement + Photo'));
     assert.ok(mail);
+    assert.ok(mail.attachments.some(attachment => attachment.filename.endsWith('.pdf')));
+    assert.ok(mail.attachments.some(attachment => attachment.filename.endsWith('.jpg')));
+    assert.equal(mail.attachments.some(attachment => attachment.filename.endsWith('.csv')), false);
+});
+
+test('daily call list is sent once with today absentees and complete-day percentages', async () => {
+    process.env.CRON_SECRET = 'test-cron-secret';
+    const first = await request('/api/cron/daily-call-list?date=2026-10-31&secret=test-cron-secret');
+    assert.equal(first.status, 200);
+    assert.equal(first.data.sent, 1);
+    const mail = messages.findLast(message => message.subject.includes('[Daily Call List]'));
+    assert.ok(mail);
+    assert.ok(mail.attachments.some(attachment => attachment.filename.endsWith('.pdf')));
+    assert.ok(mail.attachments.some(attachment => attachment.filename.endsWith('.jpg')));
     const csvAttachment = mail.attachments.find(attachment => attachment.filename.endsWith('.csv'));
     assert.ok(csvAttachment);
-    assert.match(csvAttachment.content.toString(), /S002/);
+    const csv = csvAttachment.content.toString();
+    assert.match(csv, /S002/);
+    assert.doesNotMatch(csv, /S001/);
+    assert.match(csv, /HIGH/);
+    assert.match(csv, /0\.0/);
+    assert.match(mail.text, /Absentees today: 1/);
+    assert.match(mail.text, /complete days/i);
+
+    const second = await request('/api/cron/daily-call-list?date=2026-10-31&secret=test-cron-secret');
+    assert.equal(second.status, 200);
+    assert.equal(second.data.sent, 0);
+    assert.equal(second.data.skipped, 1);
+    const logs = await all(db, "SELECT * FROM daily_call_list_log WHERE date='2026-10-31'");
+    assert.equal(logs.length, 1);
+});
+
+test('daily call list uses complete-day attendance, not hourly percentage', async () => {
+    const insertLog = (roll, hour, status) => run(db, `
+        INSERT INTO attendance_logs
+            (roll_number, date, hour_slot, subject_name, status, faculty_id, faculty_name, submission_time, branch_id, dept_id, batch_year_id, section_id)
+        VALUES (?, '2026-11-01', ?, 'Maths', ?, 'F1', 'F1', '10:00:00 AM', ?, ?, ?, ?)
+    `, [roll, hour, status, classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id]);
+    await insertLog('S001', 'Hour 1', 'Present');
+    await insertLog('S001', 'Hour 2', 'Present');
+    await insertLog('S002', 'Hour 1', 'Present');
+    await insertLog('S002', 'Hour 2', 'Absent');
+
+    const result = await request('/api/cron/daily-call-list?date=2026-11-01&secret=test-cron-secret');
+    assert.equal(result.status, 200);
+    assert.equal(result.data.sent, 1);
+    const mail = messages.findLast(message => message.subject.includes('2026-11-01'));
+    assert.ok(mail);
+    const csvAttachment = mail.attachments.find(attachment => attachment.filename.endsWith('.csv'));
+    assert.ok(csvAttachment);
+    const csv = csvAttachment.content.toString();
+    // S002 attended 1 of 2 hours (50% hourly) but no complete day, so daily attendance is 0%.
+    assert.match(csv, /S002/);
+    assert.match(csv, /0\.0/);
+    assert.doesNotMatch(csv, /50\.0/);
+    assert.match(csv, /HIGH/);
+    assert.doesNotMatch(csv, /S001/);
+    assert.match(mail.text, /Absentees today: 1/);
+});
+
+test('daily call list endpoint rejects callers without the cron secret', async () => {
+    assert.equal((await request('/api/cron/daily-call-list?date=2026-10-31')).status, 401);
 });
 
 test('admin can set and change a mentor login password', async () => {

@@ -14,7 +14,9 @@ Node.js/Express and SQLite application for ACE faculty attendance, administratio
 Portals: `/` (faculty), `/admin` (administration), `/mentor` (section mentors), `/doe` (DOE).
 Configure courses, departments, batch years, sections, faculty, students and section mentors in the admin portal before taking attendance.
 
-Mentors can sign in at `/mentor` with a password set by an administrator, or with a one-time code sent to their registered email. They see only the sections allotted to them, can filter students by roll number, name, date range and attendance threshold, and can download a CSV call list containing roll number, student name, parent number and attendance percentage. Every attendance submission also emails the section mentor the attendance statement, classroom photo and a CSV of students below `ATTENDANCE_THRESHOLD` (default 75%).
+Mentors can sign in at `/mentor` with a password set by an administrator, or with a one-time code sent to their registered email. They see only the sections allotted to them, can filter students by roll number, name, date range and attendance threshold, and can download a CSV call list containing roll number, student name, parent number and attendance percentage.
+
+Every attendance submission emails the section mentor the attendance statement PDF and classroom photo. Once per day, a scheduled job at 7:00 PM IST emails the mentor of each section that had attendance a daily call list. The call list contains that day's absentees, with students whose **daily** attendance is below `ATTENDANCE_THRESHOLD` (default 75%) listed first and marked `HIGH` in the CSV. Daily attendance counts a day as present only when the student attended **all** conducted hours that day, so the percentage is based on complete days rather than hourly sessions. The daily email also attaches the day's attendance statement and the latest classroom photo. The job is idempotent per section/date and will not resend.
 
 Existing plaintext account passwords are upgraded to hashes at startup; users retain their passwords. Sessions are stored in the database and expire after eight hours; DOE sessions last two hours. Production deployments require HTTPS (including for camera/location access); set `NODE_ENV=production` for secure session cookies. Attendance dates use Asia/Kolkata.
 
@@ -34,8 +36,9 @@ Vercel functions have no persistent filesystem, so production data lives in [Tur
    - `APP_URL` (your Vercel URL, e.g. `https://your-project.vercel.app`)
    - `CAMPUS_LAT`, `CAMPUS_LNG`, `CAMPUS_RADIUS_METERS`
    - `ATTENDANCE_THRESHOLD` (optional, default `75`)
+   - `CRON_SECRET` (recommended; protects `/api/cron/daily-call-list`; Vercel Cron sends it automatically as a Bearer token)
    - `NODE_ENV=production`
-5. Deploy. The first request creates the schema in Turso automatically.
+5. Deploy. The first request creates the schema in Turso automatically. The `crons` entry in `vercel.json` runs the daily call-list job at 13:30 UTC (7:00 PM IST). Vercel Hobby runs cron jobs once per day; adjust the schedule if needed.
 
 `npm start` uses a local `attendance.db` when `TURSO_DATABASE_URL` is not set. If `TURSO_DATABASE_URL` is present in `.env`, the local server connects to the same hosted database as production, so changes are shared across devices. Vercel requests are capped at roughly 4.5 MB; the faculty portal compresses classroom photos before upload.
 

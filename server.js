@@ -837,6 +837,109 @@ async function buildSectionAttendance(section, options = {}) {
     };
 }
 
+async function buildDailyCallList(section, targetDate, threshold = ATTENDANCE_THRESHOLD) {
+    const scope = [section.branch_id, section.dept_id, section.batch_year_id, section.section_id];
+    const logs = await all(db, `
+        SELECT roll_number, date, hour_slot, status
+        FROM attendance_logs
+        WHERE branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ?
+          AND status != 'Leisure' AND date <= ?
+        ORDER BY date ASC, hour_slot ASC
+    `, [...scope, targetDate]);
+
+    const conductedHours = new Map();
+    const studentStatus = new Map();
+    for (const log of logs) {
+        if (!conductedHours.has(log.date)) conductedHours.set(log.date, new Set());
+        conductedHours.get(log.date).add(log.hour_slot);
+        if (!studentStatus.has(log.roll_number)) studentStatus.set(log.roll_number, new Map());
+        const byDate = studentStatus.get(log.roll_number);
+        if (!byDate.has(log.date)) byDate.set(log.date, new Map());
+        byDate.get(log.date).set(log.hour_slot, log.status);
+    }
+
+    const conductedDates = [...conductedHours.keys()].sort();
+    const conductedDays = conductedDates.length;
+
+    const students = await all(db, `
+        SELECT roll_number, name, phone_number, parent_number
+        FROM students
+        WHERE branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ?
+        ORDER BY roll_number ASC
+    `, scope);
+
+    const rows = students.map(student => {
+        const byDate = studentStatus.get(student.roll_number) || new Map();
+        let completeDays = 0;
+        for (const day of conductedDates) {
+            const hours = conductedHours.get(day);
+            const statuses = byDate.get(day) || new Map();
+            let complete = true;
+            for (const hour of hours) {
+                if (statuses.get(hour) !== 'Present') {
+                    complete = false;
+                    break;
+                }
+            }
+            if (complete) completeDays += 1;
+        }
+        const dailyPercentage = conductedDays ? Math.round((completeDays / conductedDays) * 1000) / 10 : null;
+        const todayStatuses = byDate.get(targetDate) || new Map();
+        const absentHours = [...todayStatuses.entries()]
+            .filter(([, status]) => status === 'Absent')
+            .map(([hour]) => hour)
+            .sort();
+        return {
+            roll_number: student.roll_number,
+            name: student.name,
+            phone_number: student.phone_number || '',
+            parent_number: student.parent_number || '',
+            complete_days: completeDays,
+            conducted_days: conductedDays,
+            daily_percentage: dailyPercentage,
+            absent_hours: absentHours,
+            today_absent: absentHours.length > 0,
+            below_threshold: dailyPercentage !== null && dailyPercentage < threshold
+        };
+    });
+
+    const absentees = rows.filter(row => row.today_absent).sort((a, b) => {
+        if (a.below_threshold !== b.below_threshold) return a.below_threshold ? -1 : 1;
+        const diff = (a.daily_percentage ?? 101) - (b.daily_percentage ?? 101);
+        return diff || a.roll_number.localeCompare(b.roll_number);
+    });
+
+    return {
+        section,
+        date: targetDate,
+        conducted_days: conductedDays,
+        students: rows,
+        absentees,
+        high_priority: absentees.filter(row => row.below_threshold).length,
+        threshold
+    };
+}
+
+function buildDailyCallListCsv(absentees, threshold = ATTENDANCE_THRESHOLD) {
+    const lines = [
+        ['Roll No', 'Student Name', 'Parent Number', 'Daily Attendance %', 'Complete Days', 'Conducted Days', "Today's Absent Hours", `Priority (HIGH = below ${threshold}%)`]
+            .map(csvCell).join(',')
+    ];
+    for (const row of absentees) {
+        lines.push([
+            row.roll_number,
+            row.name,
+            row.parent_number || '',
+            row.daily_percentage === null || row.daily_percentage === undefined ? '' : Number(row.daily_percentage).toFixed(1),
+            row.complete_days,
+            row.conducted_days,
+            (row.absent_hours || []).join('; '),
+            row.below_threshold ? 'HIGH' : 'NORMAL'
+        ].map(csvCell).join(','));
+    }
+    return lines.join('\r\n');
+}
+
 app.get('/api/mentor/sections', async (req, res) => {
     try {
         const sections = await getMentorSections(req.auth.user.id);
@@ -882,6 +985,121 @@ app.get('/api/mentor/sections/:section_id/attendance.csv', async (req, res) => {
         res.send('\uFEFF' + buildCallListCsv(below));
     } catch (err) {
         res.status(500).json({ success: false, message: 'Unable to export attendance.' });
+    }
+});
+
+// =========================================================================
+// DAILY MENTOR CALL LIST (once per section per day)
+// =========================================================================
+
+app.get('/api/cron/daily-call-list', async (req, res) => {
+    const cronSecret = process.env.CRON_SECRET;
+    const providedSecret = req.query.secret || String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+    const isVercelCron = req.headers['x-vercel-cron'] === '1';
+    const authorized = cronSecret ? providedSecret === cronSecret : isVercelCron;
+    if (!authorized) {
+        return res.status(401).json({ success: false, message: 'Unauthorized.' });
+    }
+
+    const targetDate = validDate(req.query.date)
+        ? req.query.date
+        : new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+
+    try {
+        const sections = await all(db, `
+            SELECT DISTINCT sm.section_id, sm.branch_id, sm.dept_id, sm.batch_year_id,
+                   b.name AS branch_name, d.name AS dept_name, by.name AS batch_year_name, s.name AS sec_name,
+                   m.mentor_id, m.name AS mentor_name, m.email AS mentor_email,
+                   d.doe_name, d.doe_email
+            FROM attendance_logs al
+            JOIN section_mentors sm
+              ON sm.branch_id = al.branch_id AND sm.dept_id = al.dept_id
+             AND sm.batch_year_id = al.batch_year_id AND sm.section_id = al.section_id
+            JOIN mentors m ON m.mentor_id = sm.mentor_id
+            JOIN branches b ON b.id = al.branch_id
+            JOIN departments d ON d.id = al.dept_id
+            JOIN batch_years by ON by.id = al.batch_year_id
+            JOIN sections s ON s.id = al.section_id
+            WHERE al.date = ? AND al.status != 'Leisure'
+        `, [targetDate]);
+
+        let sent = 0;
+        let skipped = 0;
+        let failed = 0;
+        for (const section of sections) {
+            try {
+                const alreadySent = await get(db,
+                    'SELECT sent_at FROM daily_call_list_log WHERE section_id = ? AND date = ?',
+                    [section.section_id, targetDate]);
+                if (alreadySent || !section.mentor_email) {
+                    skipped += 1;
+                    continue;
+                }
+
+                const data = await buildDailyCallList(section, targetDate, ATTENDANCE_THRESHOLD);
+                const logs = await all(db, `
+                    SELECT hour_slot, subject_name, faculty_name, roll_number, status, submission_time
+                    FROM attendance_logs
+                    WHERE date = ? AND branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ?
+                    ORDER BY hour_slot ASC, roll_number ASC
+                `, [targetDate, section.branch_id, section.dept_id, section.batch_year_id, section.section_id]);
+                const enrolled = await all(db, `
+                    SELECT roll_number FROM students
+                    WHERE branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ?
+                    ORDER BY roll_number ASC
+                `, [section.branch_id, section.dept_id, section.batch_year_id, section.section_id]);
+
+                const attachments = [];
+                try {
+                    const pdf = await generateSinglePageHorizontalPDF(section, targetDate, logs, enrolled);
+                    attachments.push({ filename: `Attendance_Statement_${targetDate}.pdf`, content: pdf });
+                } catch (pdfError) {
+                    console.error('Daily attendance PDF failed:', pdfError.message);
+                }
+
+                const photoRow = await get(db,
+                    'SELECT photo FROM attendance_photos WHERE section_id = ? AND date = ?',
+                    [section.section_id, targetDate]);
+                if (photoRow?.photo) {
+                    const base64 = String(photoRow.photo).replace(/^data:image\/\w+;base64,/, '');
+                    attachments.push({
+                        filename: `Classroom_Proof_${targetDate}.jpg`,
+                        content: Buffer.from(base64, 'base64')
+                    });
+                }
+
+                if (data.absentees.length) {
+                    attachments.push({
+                        filename: `Daily_Call_List_${targetDate}.csv`,
+                        content: Buffer.from('\uFEFF' + buildDailyCallListCsv(data.absentees, ATTENDANCE_THRESHOLD), 'utf8')
+                    });
+                }
+
+                const body = data.absentees.length
+                    ? `Respected Mentor (${section.mentor_name}),\n\nDaily attendance summary for ${targetDate}.\n\nAbsentees today: ${data.absentees.length}\nHigh priority (daily attendance below ${ATTENDANCE_THRESHOLD}%): ${data.high_priority}\n\nAttendance % is calculated from complete days (present in all conducted hours), not hourly.\nHigh-priority absentees are listed first and marked HIGH in the CSV.\n\nAttached: attendance statement, classroom photo, and daily call-list CSV.`
+                    : `Respected Mentor (${section.mentor_name}),\n\nDaily attendance summary for ${targetDate}.\n\nNo students were absent today.\n\nAttached: attendance statement and classroom photo.`;
+
+                await transporter.sendMail({
+                    from: '"ACE College Attendance" <no-reply@college.edu>',
+                    to: section.mentor_email,
+                    subject: `[Daily Call List] ${section.branch_name} ${section.dept_name} Sec-${section.sec_name} — ${targetDate}`,
+                    text: body,
+                    attachments
+                });
+                await run(db,
+                    'INSERT OR IGNORE INTO daily_call_list_log (section_id, date, sent_at) VALUES (?, ?, ?)',
+                    [section.section_id, targetDate, Date.now()]);
+                sent += 1;
+            } catch (sectionError) {
+                failed += 1;
+                console.error(`Daily call list failed for section ${section.section_id}:`, sectionError.message);
+            }
+        }
+
+        res.json({ success: true, date: targetDate, sections: sections.length, sent, skipped, failed });
+    } catch (err) {
+        console.error('Daily call list job failed:', err.message);
+        res.status(500).json({ success: false, message: 'Unable to send daily call lists.' });
     }
 });
 
@@ -1249,6 +1467,21 @@ app.post('/api/attendance/submit', async (req, res) => {
             return res.status(409).json({ success: false, message: writeError.message });
         }
 
+        // Keep the latest classroom photo per section/day so the once-a-day
+        // call-list email can attach it after the college day is over.
+        try {
+            await run(db, `
+                INSERT INTO attendance_photos (section_id, date, hour_slot, photo, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                ON CONFLICT(section_id, date) DO UPDATE SET
+                    hour_slot = excluded.hour_slot,
+                    photo = excluded.photo,
+                    created_at = excluded.created_at
+            `, [classDetails.section_id, date, hourSlot, classroomPhoto, Date.now()]);
+        } catch (photoError) {
+            console.error('Classroom photo storage failed:', photoError.message);
+        }
+
         let photoBuffer = null;
         try {
             const cleanBase64 = classroomPhoto.replace(/^data:image\/\w+;base64,/, "");
@@ -1279,29 +1512,13 @@ app.post('/api/attendance/submit', async (req, res) => {
                 });
             }
 
-            // Daily call list: students whose attendance is below the configured threshold.
-            const callListData = await buildSectionAttendance({
-                branch_id: classDetails.branch_id,
-                dept_id: classDetails.dept_id,
-                batch_year_id: classDetails.batch_year_id,
-                section_id: classDetails.section_id
-            }, { toDate: date, threshold: ATTENDANCE_THRESHOLD });
-            const callList = callListData.students.filter(student => student.below_threshold);
-            if (callList.length) {
-                mentorAttachments.push({
-                    filename: `Below_${ATTENDANCE_THRESHOLD}_Call_List_${date}.csv`,
-                    content: Buffer.from('\uFEFF' + buildCallListCsv(callList), 'utf8')
-                });
-            }
-            const callListNote = callList.length
-                ? `\n\nToday's call list: ${callList.length} student(s) are below ${ATTENDANCE_THRESHOLD}% attendance. The CSV call list is attached.`
-                : `\n\nNo students are below ${ATTENDANCE_THRESHOLD}% attendance today.`;
-
+            // The call-list CSV is sent once per day by the daily summary job,
+            // not on every hourly submission.
             await transporter.sendMail({
                 from: '"ACE College Attendance" <no-reply@college.edu>',
                 to: sectionInfo.mentor_email,
                 subject: `[Attendance Statement + Photo] ${sectionInfo.branch_name} ${sectionInfo.dept_name} Sec-${sectionInfo.sec_name} (${hourSlot})`,
-                text: `Respected Mentor (${sectionInfo.mentor_name}),\n\nAttendance for ${hourSlot} was recorded at ${submissionTime} by ${facultyName}.\n\nAttached is the official statement and watermarked classroom photo.${callListNote}`,
+                text: `Respected Mentor (${sectionInfo.mentor_name}),\n\nAttendance for ${hourSlot} was recorded at ${submissionTime} by ${facultyName}.\n\nAttached is the official statement and watermarked classroom photo.`,
                 attachments: mentorAttachments
             });
 
