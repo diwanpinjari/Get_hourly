@@ -98,9 +98,12 @@
 
                 <!-- TODAY'S HOURS -->
                 <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-5 shadow-sm">
-                    <div class="flex items-center justify-between mb-3">
-                        <h3 class="text-sm font-black text-slate-800">Today's Hour Attendance</h3>
-                        <span id="todayLabel" class="text-[11px] font-bold text-slate-400"></span>
+                    <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                        <h3 class="text-sm font-black text-slate-800">Hour Attendance</h3>
+                        <div class="flex items-center gap-2">
+                            <label class="text-[11px] font-bold text-slate-500">Day</label>
+                            <input type="date" id="hourDate" onchange="renderTodayHours()" class="border border-slate-300 rounded-lg p-1.5 text-[11px] font-semibold">
+                        </div>
                     </div>
                     <div id="hourGrid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3"></div>
                 </div>
@@ -369,6 +372,7 @@
             document.getElementById('sortSelect').value = 'roll';
             document.getElementById('fromDate').value = '';
             document.getElementById('toDate').value = '';
+            document.getElementById('hourDate').value = todayIST();
             await loadAttendance();
         }
 
@@ -413,11 +417,11 @@
         }
 
         function renderTodayHours() {
-            const today = todayIST();
-            document.getElementById('todayLabel').innerText = today;
+            if (!attendanceData) return;
+            const day = document.getElementById('hourDate').value || todayIST();
             const bySlot = new Map();
             (attendanceData.sessions || [])
-                .filter(session => session.date === today)
+                .filter(session => session.date === day)
                 .forEach(session => bySlot.set(session.hour_slot, session));
             const slots = ['Hour 1', 'Hour 2', 'Hour 3', 'Hour 4', 'Hour 5', 'Hour 6'];
             document.getElementById('hourGrid').innerHTML = slots.map(slot => {
