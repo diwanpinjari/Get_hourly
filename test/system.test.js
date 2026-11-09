@@ -215,6 +215,16 @@ test('attendance emails include the below-threshold call-list CSV', async () => 
     assert.match(csvAttachment.content.toString(), /S002/);
 });
 
+test('admin can set and change a mentor login password', async () => {
+    const mentors = (await request('/api/admin/mentors')).data;
+    const mentor = mentors.find(item => item.email === 'mentor@example.test');
+    assert.equal(mentor.has_password, 1);
+    assert.equal((await request(`/api/admin/mentors/${mentor.mentor_id}`, 'PUT', { name: 'Mentor', email: 'mentor@example.test', password: 'new-mentor-pass' })).status, 200);
+    const login = await request('/api/mentor/login', 'POST', { email: 'mentor@example.test', password: 'new-mentor-pass' }, null);
+    assert.equal(login.status, 200);
+    assert.equal((await request('/api/mentor/login', 'POST', { email: 'mentor@example.test', password: 'mentor-pass' }, null)).status, 401);
+});
+
 test('CSV quoting and names containing apostrophes round-trip safely', () => {
     const context = vm.createContext({ window: { fetch() {}, addEventListener() {} }, Intl, Date });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/common.js'), 'utf8'), context);
