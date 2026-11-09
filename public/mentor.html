@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mentor Portal — Student Attendance</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="min-h-screen bg-slate-100 text-slate-800">
+
+    <!-- LOGIN -->
+    <div id="loginScreen" class="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-slate-900 via-blue-950 to-slate-900">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden">
+            <div class="bg-gradient-to-r from-blue-800 to-indigo-800 p-6 text-white">
+                <h1 class="text-lg font-black tracking-tight">ACE Engineering College</h1>
+                <p class="text-xs font-semibold text-blue-100 mt-1 uppercase tracking-wider">Mentor Attendance Portal</p>
+            </div>
+            <div class="p-6 space-y-4">
+                <div class="flex rounded-lg bg-slate-100 p-1 text-xs font-bold">
+                    <button id="tabPassword" onclick="setLoginMode('password')" class="flex-1 py-2 rounded-md bg-white shadow-sm text-blue-800">Password</button>
+                    <button id="tabOtp" onclick="setLoginMode('otp')" class="flex-1 py-2 rounded-md text-slate-500">Email OTP</button>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Registered Mentor Email</label>
+                    <input type="email" id="loginEmail" placeholder="mentor@college.edu" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold focus:ring-2 focus:ring-blue-600 focus:outline-none">
+                </div>
+
+                <div id="passwordField">
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Password</label>
+                    <input type="password" id="loginPassword" placeholder="Your password" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold focus:ring-2 focus:ring-blue-600 focus:outline-none">
+                </div>
+
+                <div id="otpField" class="hidden">
+                    <label class="block text-xs font-bold text-slate-700 mb-1">6-Digit OTP</label>
+                    <input type="text" id="loginOtp" maxlength="6" placeholder="••••••" class="w-full text-center tracking-[0.4em] font-mono text-lg font-black border border-slate-300 rounded-lg p-2.5 focus:ring-2 focus:ring-blue-600 focus:outline-none">
+                </div>
+
+                <button id="sendOtpBtn" onclick="requestOtp()" class="hidden w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition shadow-sm">
+                    Email Me a One-Time Code
+                </button>
+
+                <button id="loginBtn" onclick="handleLogin()" class="w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition shadow-sm">
+                    Sign In
+                </button>
+
+                <p id="loginMsg" class="text-xs font-semibold text-center hidden"></p>
+                <p class="text-[11px] text-slate-400 text-center leading-relaxed">
+                    Use your password, or switch to Email OTP to receive a one-time code at your registered email.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- DASHBOARD -->
+    <div id="dashboardScreen" class="hidden min-h-screen">
+        <header class="bg-white border-b border-slate-200 sticky top-0 z-20 shadow-sm">
+            <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                    <h1 class="text-sm font-black text-slate-900">Mentor Attendance Portal</h1>
+                    <p class="text-[11px] font-semibold text-slate-500" id="mentorHeader">ACE Engineering College</p>
+                </div>
+                <div class="flex items-center gap-2">
+                    <a href="/" class="text-xs font-bold text-slate-500 hover:text-slate-800">Faculty Portal</a>
+                    <button onclick="logout()" class="text-xs font-bold bg-slate-900 hover:bg-black text-white px-3 py-1.5 rounded-lg transition">Logout</button>
+                </div>
+            </div>
+        </header>
+
+        <main class="max-w-7xl mx-auto p-4 md:p-6">
+
+            <!-- ASSIGNED SECTIONS -->
+            <section id="sectionsView">
+                <div class="mb-5">
+                    <h2 class="text-xl font-black text-slate-900">Your Allotted Sections</h2>
+                    <p class="text-xs font-semibold text-slate-500 mt-1">Select a section to view student attendance, filter students, and download the call list.</p>
+                </div>
+                <div id="sectionCards" class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4"></div>
+                <p id="sectionsEmpty" class="hidden text-sm font-semibold text-slate-500 bg-white border border-slate-200 rounded-xl p-6 text-center">
+                    No sections are assigned to you yet. Contact the administrator.
+                </p>
+            </section>
+
+            <!-- SECTION ATTENDANCE -->
+            <section id="attendanceView" class="hidden">
+                <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+                    <div>
+                        <button onclick="backToSections()" class="text-xs font-bold text-blue-700 hover:text-blue-900">&larr; All Sections</button>
+                        <h2 id="sectionTitle" class="text-xl font-black text-slate-900 mt-1">Section</h2>
+                        <p id="sectionSubtitle" class="text-xs font-semibold text-slate-500"></p>
+                    </div>
+                    <button onclick="downloadCsv()" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-4 py-2.5 rounded-lg shadow-sm transition">
+                        ⬇ Download Below-Threshold CSV
+                    </button>
+                </div>
+
+                <div id="summaryCards" class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-5"></div>
+
+                <!-- TODAY'S HOURS -->
+                <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-5 shadow-sm">
+                    <div class="flex items-center justify-between mb-3">
+                        <h3 class="text-sm font-black text-slate-800">Today's Hour Attendance</h3>
+                        <span id="todayLabel" class="text-[11px] font-bold text-slate-400"></span>
+                    </div>
+                    <div id="hourGrid" class="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-3"></div>
+                </div>
+
+                <!-- FILTERS -->
+                <div class="bg-white border border-slate-200 rounded-2xl p-4 mb-5 shadow-sm">
+                    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-3 items-end">
+                        <div class="xl:col-span-2">
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Search Roll No / Student Name</label>
+                            <input type="text" id="searchInput" oninput="applyFilters()" placeholder="e.g. 23B81A05 or Student name" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold focus:ring-2 focus:ring-blue-500 focus:outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Show</label>
+                            <select id="statusFilter" onchange="applyFilters()" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white">
+                                <option value="all">All students</option>
+                                <option value="below">Below threshold only</option>
+                                <option value="withdata">With attendance data</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Threshold</label>
+                            <select id="thresholdSelect" onchange="onThresholdChange()" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white">
+                                <option value="50">Below 50%</option>
+                                <option value="60">Below 60%</option>
+                                <option value="75" selected>Below 75%</option>
+                                <option value="80">Below 80%</option>
+                                <option value="90">Below 90%</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">Sort By</label>
+                            <select id="sortSelect" onchange="applyFilters()" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold bg-white">
+                                <option value="roll">Roll No (A–Z)</option>
+                                <option value="low">Lowest attendance first</option>
+                                <option value="high">Highest attendance first</option>
+                                <option value="name">Student name (A–Z)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mt-3">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">From Date</label>
+                            <input type="date" id="fromDate" onchange="loadAttendance()" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 mb-1">To Date</label>
+                            <input type="date" id="toDate" onchange="loadAttendance()" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                        </div>
+                        <div>
+                            <button onclick="resetFilters()" class="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold py-2.5 rounded-lg transition">Reset Filters</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- STUDENT TABLE -->
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+                    <div class="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                        <h3 class="text-sm font-black text-slate-800">Student Attendance</h3>
+                        <span id="rowCount" class="text-[11px] font-bold text-slate-400"></span>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs border-collapse">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-600 font-bold border-b border-slate-200">
+                                    <th class="p-3">Roll No</th>
+                                    <th class="p-3">Student Name</th>
+                                    <th class="p-3">Parent Number</th>
+                                    <th class="p-3 text-center">Present</th>
+                                    <th class="p-3 text-center">Absent</th>
+                                    <th class="p-3 text-center">Sessions</th>
+                                    <th class="p-3 text-center">Attendance %</th>
+                                    <th class="p-3 text-center">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="studentTableBody" class="divide-y divide-slate-100"></tbody>
+                        </table>
+                    </div>
+                    <div id="tableEmpty" class="hidden p-8 text-center text-sm font-semibold text-slate-400">No students match the selected filters.</div>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script>
+        let mentor = null;
+        let sections = [];
+        let activeSection = null;
+        let attendanceData = null;
+        let loginMode = 'password';
+        let otpRequested = false;
+
+        function escapeHtml(value) {
+            return String(value ?? '').replace(/[&<>"']/g, character => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+            }[character]));
+        }
+
+        function formatPct(value) {
+            return value === null || value === undefined ? '—' : Number(value).toFixed(1) + '%';
+        }
+
+        function todayIST() {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit'
+            }).formatToParts(new Date());
+            const value = type => parts.find(part => part.type === type).value;
+            return `${value('year')}-${value('month')}-${value('day')}`;
+        }
+
+        function currentThreshold() {
+            return Number(document.getElementById('thresholdSelect').value) || 75;
+        }
+
+        function hideLoginMessage() {
+            const message = document.getElementById('loginMsg');
+            message.classList.add('hidden');
+            message.classList.remove('text-rose-600', 'text-emerald-700');
+        }
+
+        function showLoginMessage(text, isError) {
+            const message = document.getElementById('loginMsg');
+            message.classList.remove('hidden', 'text-rose-600', 'text-emerald-700');
+            message.classList.add(isError ? 'text-rose-600' : 'text-emerald-700');
+            message.innerText = text;
+        }
+
+        function setLoginMode(mode) {
+            loginMode = mode;
+            const isOtp = mode === 'otp';
+            document.getElementById('tabPassword').className = isOtp
+                ? 'flex-1 py-2 rounded-md text-slate-500'
+                : 'flex-1 py-2 rounded-md bg-white shadow-sm text-blue-800';
+            document.getElementById('tabOtp').className = isOtp
+                ? 'flex-1 py-2 rounded-md bg-white shadow-sm text-blue-800'
+                : 'flex-1 py-2 rounded-md text-slate-500';
+            document.getElementById('passwordField').classList.toggle('hidden', isOtp);
+            document.getElementById('otpField').classList.toggle('hidden', !isOtp || !otpRequested);
+            document.getElementById('sendOtpBtn').classList.toggle('hidden', !isOtp);
+            document.getElementById('loginBtn').innerText = isOtp ? 'Verify & Sign In' : 'Sign In';
+            document.getElementById('loginBtn').className = isOtp
+                ? 'w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition shadow-sm'
+                : 'w-full bg-blue-700 hover:bg-blue-800 text-white font-bold py-2.5 rounded-lg text-xs tracking-wider transition shadow-sm';
+            hideLoginMessage();
+        }
+
+        async function handleLogin() {
+            const email = document.getElementById('loginEmail').value.trim();
+            if (!email) return showLoginMessage('Enter your registered email.', true);
+            try {
+                if (loginMode === 'password') {
+                    const password = document.getElementById('loginPassword').value;
+                    if (!password) return showLoginMessage('Enter your password.', true);
+                    const response = await fetch('/api/mentor/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, password })
+                    });
+                    const data = await response.json();
+                    if (!data.success) return showLoginMessage(data.message, true);
+                    mentor = data.mentor;
+                    await enterDashboard();
+                } else {
+                    const otp = document.getElementById('loginOtp').value.trim();
+                    if (!otp) return showLoginMessage('Enter the 6-digit OTP sent to your email.', true);
+                    const response = await fetch('/api/mentor/verify-otp', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email, otp })
+                    });
+                    const data = await response.json();
+                    if (!data.success) return showLoginMessage(data.message, true);
+                    mentor = data.mentor;
+                    await enterDashboard();
+                }
+            } catch (err) {
+                showLoginMessage('Network error. Please retry.', true);
+            }
+        }
+
+        async function requestOtp() {
+            const email = document.getElementById('loginEmail').value.trim();
+            if (!email) return showLoginMessage('Enter your registered email first.', true);
+            const button = document.getElementById('sendOtpBtn');
+            button.disabled = true;
+            button.innerText = 'Sending OTP...';
+            try {
+                const response = await fetch('/api/mentor/request-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email })
+                });
+                const data = await response.json();
+                showLoginMessage(data.message, !data.success);
+                if (data.success) {
+                    otpRequested = true;
+                    document.getElementById('otpField').classList.remove('hidden');
+                    document.getElementById('loginOtp').focus();
+                }
+            } catch (err) {
+                showLoginMessage('Network error. Please retry.', true);
+            } finally {
+                button.disabled = false;
+                button.innerText = 'Email Me a One-Time Code';
+            }
+        }
+
+        async function enterDashboard() {
+            document.getElementById('loginScreen').classList.add('hidden');
+            document.getElementById('dashboardScreen').classList.remove('hidden');
+            document.getElementById('mentorHeader').innerText = `${mentor.name} • ${mentor.email}`;
+            const response = await fetch('/api/mentor/sections', { credentials: 'same-origin' });
+            if (response.status === 401) return showLogin();
+            const data = await response.json();
+            sections = data.sections || [];
+            renderSections();
+            showSectionsView();
+        }
+
+        function showLogin() {
+            document.getElementById('dashboardScreen').classList.add('hidden');
+            document.getElementById('loginScreen').classList.remove('hidden');
+            document.getElementById('loginPassword').value = '';
+            document.getElementById('loginOtp').value = '';
+            otpRequested = false;
+            setLoginMode(loginMode);
+        }
+
+        function renderSections() {
+            const container = document.getElementById('sectionCards');
+            container.innerHTML = sections.map(section => `
+                <button onclick="openSection(${Number(section.section_id)})" class="text-left bg-white border border-slate-200 rounded-2xl p-5 shadow-sm hover:shadow-md hover:border-blue-300 transition">
+                    <div class="flex items-start justify-between gap-3">
+                        <div>
+                            <p class="text-[11px] font-bold text-blue-700 uppercase tracking-wider">${escapeHtml(section.branch_name)}</p>
+                            <h3 class="text-base font-black text-slate-900 mt-1">${escapeHtml(section.dept_name)} — Sec ${escapeHtml(section.sec_name)}</h3>
+                            <p class="text-xs font-semibold text-slate-500 mt-1">Batch ${escapeHtml(section.batch_year_name)}</p>
+                        </div>
+                        <span class="bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap">${Number(section.student_count) || 0} students</span>
+                    </div>
+                    <p class="text-xs font-bold text-blue-700 mt-4">View attendance &rarr;</p>
+                </button>
+            `).join('');
+            document.getElementById('sectionsEmpty').classList.toggle('hidden', sections.length > 0);
+        }
+
+        function showSectionsView() {
+            document.getElementById('attendanceView').classList.add('hidden');
+            document.getElementById('sectionsView').classList.remove('hidden');
+            activeSection = null;
+            attendanceData = null;
+        }
+
+        function backToSections() {
+            showSectionsView();
+        }
+
+        async function openSection(sectionId) {
+            activeSection = sections.find(section => Number(section.section_id) === Number(sectionId));
+            if (!activeSection) return;
+            document.getElementById('sectionsView').classList.add('hidden');
+            document.getElementById('attendanceView').classList.remove('hidden');
+            document.getElementById('sectionTitle').innerText = `${activeSection.dept_name} — Sec ${activeSection.sec_name}`;
+            document.getElementById('sectionSubtitle').innerText = `${activeSection.branch_name} • Batch ${activeSection.batch_year_name}`;
+            document.getElementById('searchInput').value = '';
+            document.getElementById('statusFilter').value = 'all';
+            document.getElementById('sortSelect').value = 'roll';
+            document.getElementById('fromDate').value = '';
+            document.getElementById('toDate').value = '';
+            await loadAttendance();
+        }
+
+        async function loadAttendance() {
+            if (!activeSection) return;
+            const params = new URLSearchParams();
+            const from = document.getElementById('fromDate').value;
+            const to = document.getElementById('toDate').value;
+            if (from) params.set('from_date', from);
+            if (to) params.set('to_date', to);
+            params.set('threshold', currentThreshold());
+            try {
+                const response = await fetch(`/api/mentor/sections/${activeSection.section_id}/attendance?${params.toString()}`, { credentials: 'same-origin' });
+                if (response.status === 401) return showLogin();
+                const data = await response.json();
+                if (!data.success) return alert(data.message || 'Unable to load attendance.');
+                attendanceData = data;
+                renderSummary();
+                renderTodayHours();
+                applyFilters();
+            } catch (err) {
+                alert('Network error while loading attendance.');
+            }
+        }
+
+        function renderSummary() {
+            const threshold = currentThreshold();
+            const belowCount = attendanceData.students.filter(student => student.total > 0 && student.percentage < threshold).length;
+            const summary = attendanceData.summary;
+            const cards = [
+                { label: 'Total Students', value: summary.total_students, color: 'text-slate-900', bg: 'bg-slate-50' },
+                { label: 'Average Attendance', value: `${Number(summary.average_attendance).toFixed(1)}%`, color: 'text-blue-700', bg: 'bg-blue-50' },
+                { label: `Below ${threshold}%`, value: belowCount, color: 'text-rose-700', bg: 'bg-rose-50' },
+                { label: 'Sessions Conducted', value: summary.conducted_sessions, color: 'text-emerald-700', bg: 'bg-emerald-50' }
+            ];
+            document.getElementById('summaryCards').innerHTML = cards.map(card => `
+                <div class="${card.bg} border border-slate-200 rounded-xl p-4">
+                    <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider">${escapeHtml(card.label)}</p>
+                    <p class="text-2xl font-black ${card.color} mt-1">${escapeHtml(card.value)}</p>
+                </div>
+            `).join('');
+        }
+
+        function renderTodayHours() {
+            const today = todayIST();
+            document.getElementById('todayLabel').innerText = today;
+            const bySlot = new Map();
+            (attendanceData.sessions || [])
+                .filter(session => session.date === today)
+                .forEach(session => bySlot.set(session.hour_slot, session));
+            const slots = ['Hour 1', 'Hour 2', 'Hour 3', 'Hour 4', 'Hour 5', 'Hour 6'];
+            document.getElementById('hourGrid').innerHTML = slots.map(slot => {
+                const session = bySlot.get(slot);
+                if (!session) {
+                    return `<div class="border border-dashed border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                        <p class="text-[11px] font-black text-slate-400">${slot}</p>
+                        <p class="text-[11px] font-semibold text-slate-400 mt-2">Not recorded</p>
+                    </div>`;
+                }
+                const leisure = Boolean(session.is_leisure);
+                return `<div class="border ${leisure ? 'border-amber-200 bg-amber-50' : 'border-emerald-200 bg-emerald-50'} rounded-xl p-3">
+                    <div class="flex items-center justify-between gap-1">
+                        <p class="text-[11px] font-black ${leisure ? 'text-amber-800' : 'text-emerald-800'}">${slot}</p>
+                        <span class="text-[10px] font-bold ${leisure ? 'text-amber-700' : 'text-emerald-700'} whitespace-nowrap">${leisure ? 'Leisure' : `${session.present_count}P / ${session.absent_count}A`}</span>
+                    </div>
+                    <p class="text-[11px] font-bold text-slate-700 mt-2 truncate" title="${escapeHtml(session.subject_name)}">${escapeHtml(session.subject_name)}</p>
+                    <p class="text-[10px] font-semibold text-slate-500 truncate">${escapeHtml(session.faculty_name)}</p>
+                    <p class="text-[10px] font-semibold text-slate-400 mt-1">${escapeHtml(session.submission_time || '')}</p>
+                </div>`;
+            }).join('');
+        }
+
+        function applyFilters() {
+            if (!attendanceData) return;
+            const query = document.getElementById('searchInput').value.trim().toLowerCase();
+            const status = document.getElementById('statusFilter').value;
+            const threshold = currentThreshold();
+            const sort = document.getElementById('sortSelect').value;
+            let rows = attendanceData.students.filter(student => {
+                const haystack = `${student.roll_number} ${student.name}`.toLowerCase();
+                if (query && !haystack.includes(query)) return false;
+                if (status === 'below' && !(student.total > 0 && student.percentage < threshold)) return false;
+                if (status === 'withdata' && student.total === 0) return false;
+                return true;
+            });
+            rows = rows.slice().sort((a, b) => {
+                if (sort === 'low') return (a.percentage ?? 101) - (b.percentage ?? 101);
+                if (sort === 'high') return (b.percentage ?? -1) - (a.percentage ?? -1);
+                if (sort === 'name') return a.name.localeCompare(b.name);
+                return a.roll_number.localeCompare(b.roll_number);
+            });
+            renderTable(rows, threshold);
+        }
+
+        function renderTable(rows, threshold) {
+            const tbody = document.getElementById('studentTableBody');
+            document.getElementById('rowCount').innerText = `${rows.length} of ${attendanceData.students.length} students`;
+            document.getElementById('tableEmpty').classList.toggle('hidden', rows.length > 0);
+            tbody.innerHTML = rows.map(student => {
+                const below = student.total > 0 && student.percentage < threshold;
+                const pctClass = student.percentage === null ? 'text-slate-400' : (below ? 'text-rose-700' : 'text-emerald-700');
+                let badge = '<span class="bg-slate-100 text-slate-500 border border-slate-200 text-[10px] font-bold px-2 py-1 rounded-full">No data</span>';
+                if (student.total > 0) {
+                    badge = below
+                        ? '<span class="bg-rose-50 text-rose-700 border border-rose-200 text-[10px] font-bold px-2 py-1 rounded-full">Below</span>'
+                        : '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-1 rounded-full">Good</span>';
+                }
+                return `<tr class="hover:bg-slate-50">
+                    <td class="p-3 font-mono font-bold text-slate-700">${escapeHtml(student.roll_number)}</td>
+                    <td class="p-3 font-bold text-slate-900">${escapeHtml(student.name)}</td>
+                    <td class="p-3 font-mono text-slate-600">${escapeHtml(student.parent_number || '—')}</td>
+                    <td class="p-3 text-center font-bold text-emerald-700">${student.present}</td>
+                    <td class="p-3 text-center font-bold text-rose-700">${student.absent}</td>
+                    <td class="p-3 text-center font-semibold text-slate-600">${student.total}</td>
+                    <td class="p-3 text-center font-black ${pctClass}">${formatPct(student.percentage)}</td>
+                    <td class="p-3 text-center">${badge}</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function onThresholdChange() {
+            if (!attendanceData) return;
+            renderSummary();
+            applyFilters();
+        }
+
+        function downloadCsv() {
+            if (!activeSection) return;
+            const params = new URLSearchParams();
+            const from = document.getElementById('fromDate').value;
+            const to = document.getElementById('toDate').value;
+            if (from) params.set('from_date', from);
+            if (to) params.set('to_date', to);
+            params.set('threshold', currentThreshold());
+            window.location.href = `/api/mentor/sections/${activeSection.section_id}/attendance.csv?${params.toString()}`;
+        }
+
+        async function resetFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('statusFilter').value = 'all';
+            document.getElementById('sortSelect').value = 'roll';
+            document.getElementById('thresholdSelect').value = '75';
+            document.getElementById('fromDate').value = '';
+            document.getElementById('toDate').value = '';
+            await loadAttendance();
+        }
+
+        async function logout() {
+            try { await fetch('/api/logout', { method: 'POST' }); } catch (err) {}
+            window.location.reload();
+        }
+
+        (async function initializePage() {
+            try {
+                const response = await fetch('/api/mentor/sections', { credentials: 'same-origin' });
+                if (response.ok) {
+                    const data = await response.json();
+                    mentor = data.mentor;
+                    sections = data.sections || [];
+                    document.getElementById('loginScreen').classList.add('hidden');
+                    document.getElementById('dashboardScreen').classList.remove('hidden');
+                    document.getElementById('mentorHeader').innerText = `${mentor.name} • ${mentor.email}`;
+                    renderSections();
+                    showSectionsView();
+                }
+            } catch (err) {}
+        })();
+    </script>
+</body>
+</html>

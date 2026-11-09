@@ -10,7 +10,7 @@ const TABLES = [
     ['batch_years', ['id', 'name', 'branch_id']],
     ['sections', ['id', 'name', 'branch_id', 'dept_id', 'batch_year_id']],
     ['faculty', ['faculty_id', 'name', 'password', 'created_at']],
-    ['mentors', ['mentor_id', 'name', 'email']],
+    ['mentors', ['mentor_id', 'name', 'email', 'password']],
     ['section_mentors', ['id', 'branch_id', 'dept_id', 'batch_year_id', 'section_id', 'mentor_id']],
     ['students', ['roll_number', 'name', 'phone_number', 'parent_number', 'branch_id', 'dept_id', 'batch_year_id', 'section_id']],
     ['attendance_logs', ['id', 'roll_number', 'date', 'hour_slot', 'subject_name', 'status', 'faculty_id', 'faculty_name', 'submission_time', 'branch_id', 'dept_id', 'batch_year_id', 'section_id']],

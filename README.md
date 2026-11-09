@@ -11,8 +11,10 @@ Node.js/Express and SQLite application for ACE faculty attendance, administratio
 3. For a new database, set `ADMIN_PASSWORD` and `ADMIN_EMAIL` to bootstrap `ADMIN01`.
 4. Run `npm start` and open `http://localhost:3000`.
 
-Portals: `/` (faculty), `/admin` (administration), `/doe` (DOE).
+Portals: `/` (faculty), `/admin` (administration), `/mentor` (section mentors), `/doe` (DOE).
 Configure courses, departments, batch years, sections, faculty, students and section mentors in the admin portal before taking attendance.
+
+Mentors can sign in at `/mentor` with a password set by an administrator, or with a one-time code sent to their registered email. They see only the sections allotted to them, can filter students by roll number, name, date range and attendance threshold, and can download a CSV call list containing roll number, student name, parent number and attendance percentage. Every attendance submission also emails the section mentor the attendance statement, classroom photo and a CSV of students below `ATTENDANCE_THRESHOLD` (default 75%).
 
 Existing plaintext account passwords are upgraded to hashes at startup; users retain their passwords. Sessions are stored in the database and expire after eight hours; DOE sessions last two hours. Production deployments require HTTPS (including for camera/location access); set `NODE_ENV=production` for secure session cookies. Attendance dates use Asia/Kolkata.
 
@@ -31,6 +33,7 @@ Vercel functions have no persistent filesystem, so production data lives in [Tur
    - `EMAIL_USER` and `EMAIL_PASS` (Gmail app password for reports and OTPs)
    - `APP_URL` (your Vercel URL, e.g. `https://your-project.vercel.app`)
    - `CAMPUS_LAT`, `CAMPUS_LNG`, `CAMPUS_RADIUS_METERS`
+   - `ATTENDANCE_THRESHOLD` (optional, default `75`)
    - `NODE_ENV=production`
 5. Deploy. The first request creates the schema in Turso automatically.
 

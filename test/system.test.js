@@ -44,7 +44,7 @@ before(async () => {
     const section_id = (await request('/api/admin/sections', 'POST', { name: 'A', branch_id, dept_id, batch_year_id })).data.id;
     classDetails = { branch_id, dept_id, batch_year_id, section_id };
     await request(`/api/admin/departments/${dept_id}/doe`, 'PUT', { doe_name: 'DOE', doe_email: 'doe@example.test' });
-    await request('/api/admin/mentors', 'POST', { name: 'Mentor', email: 'mentor@example.test' });
+    await request('/api/admin/mentors', 'POST', { name: 'Mentor', email: 'mentor@example.test', password: 'mentor-pass' });
     const mentors = (await request('/api/admin/mentors')).data;
     assert.equal((await request('/api/admin/section-mentors', 'POST', { ...classDetails, mentor_id: mentors[0].mentor_id })).status, 200);
     assert.equal((await request('/api/admin/students/bulk', 'POST', { ...classDetails, students: [{ roll_number: 'S001', name: 'One' }, { roll_number: 'S002', name: 'Two' }] })).status, 200);
@@ -141,7 +141,7 @@ test('faculty PDF and authenticated DOE batch PDFs are generated', async () => {
     assert.equal((await request('/api/doe/verify-otp', 'POST', { dept_id: classDetails.dept_id, otp }, null)).status, 401);
 });
 test('all frontend scripts parse, and submission uses actual roster and leisure status', async () => {
-    for (const filename of ['admin.html', 'doe.html', 'index.html']) {
+    for (const filename of ['admin.html', 'doe.html', 'index.html', 'mentor.html']) {
         const html = fs.readFileSync(path.join(__dirname, '../public', filename), 'utf8');
         for (const match of html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/g)) new vm.Script(match[1], { filename });
     }
@@ -166,6 +166,55 @@ test('logout invalidates server session', async () => {
     assert.equal((await request('/api/logout', 'POST', undefined, facultyCookie)).status, 200);
     assert.equal((await request('/api/faculty/daily-progress', 'GET', undefined, facultyCookie)).status, 401);
 });
+test('mentor password login exposes only assigned sections and attendance exports', async () => {
+    const login = await request('/api/mentor/login', 'POST', { email: 'mentor@example.test', password: 'mentor-pass' }, null);
+    assert.equal(login.status, 200);
+    assert.ok(login.cookie);
+
+    const sections = await request('/api/mentor/sections', 'GET', undefined, login.cookie);
+    assert.equal(sections.status, 200);
+    assert.equal(sections.data.sections.length, 1);
+    assert.equal(Number(sections.data.sections[0].section_id), Number(classDetails.section_id));
+
+    const attendance = await request(`/api/mentor/sections/${classDetails.section_id}/attendance`, 'GET', undefined, login.cookie);
+    assert.equal(attendance.status, 200);
+    assert.equal(attendance.data.students.length, 2);
+    const below = attendance.data.students.find(student => student.roll_number === 'S002');
+    assert.ok(below.percentage < 75);
+    assert.equal(below.below_threshold, true);
+
+    const csv = await request(`/api/mentor/sections/${classDetails.section_id}/attendance.csv`, 'GET', undefined, login.cookie);
+    assert.equal(csv.status, 200);
+    assert.match(csv.data.toString(), /S002/);
+
+    assert.equal((await request('/api/mentor/sections/999/attendance', 'GET', undefined, login.cookie)).status, 403);
+    assert.equal((await request('/api/mentor/sections', 'GET', undefined, null)).status, 401);
+    assert.equal((await request('/api/mentor/login', 'POST', { email: 'mentor@example.test', password: 'wrong' }, null)).status, 401);
+});
+
+test('mentor can sign in with an email OTP', async () => {
+    const requestOtp = await request('/api/mentor/request-otp', 'POST', { email: 'mentor@example.test' }, null);
+    assert.equal(requestOtp.status, 200);
+    const mail = messages.findLast(message => message.subject.includes('Mentor Portal'));
+    assert.ok(mail);
+    const otp = mail.text.match(/\b\d{6}\b/)[0];
+    const verified = await request('/api/mentor/verify-otp', 'POST', { email: 'mentor@example.test', otp }, null);
+    assert.equal(verified.status, 200);
+    assert.ok(verified.cookie);
+    assert.equal((await request('/api/mentor/sections', 'GET', undefined, verified.cookie)).status, 200);
+    assert.equal((await request('/api/mentor/verify-otp', 'POST', { email: 'mentor@example.test', otp }, null)).status, 401);
+});
+
+test('attendance emails include the below-threshold call-list CSV', async () => {
+    const freshCookie = (await request('/api/login', 'POST', { faculty_id: 'F1', password: 'faculty-pass' }, null)).cookie;
+    assert.equal((await request('/api/attendance/submit', 'POST', payload('Hour 4'), freshCookie)).status, 200);
+    const mail = messages.findLast(message => message.subject.includes('Attendance Statement + Photo'));
+    assert.ok(mail);
+    const csvAttachment = mail.attachments.find(attachment => attachment.filename.endsWith('.csv'));
+    assert.ok(csvAttachment);
+    assert.match(csvAttachment.content.toString(), /S002/);
+});
+
 test('CSV quoting and names containing apostrophes round-trip safely', () => {
     const context = vm.createContext({ window: { fetch() {}, addEventListener() {} }, Intl, Date });
     vm.runInContext(fs.readFileSync(path.join(__dirname, '../public/common.js'), 'utf8'), context);

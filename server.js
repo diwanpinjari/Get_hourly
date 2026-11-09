@@ -58,8 +58,11 @@ async function issueSession(res, role, user) {
     res.cookie(`${role}_session`, token, { httpOnly: true, sameSite: 'strict', secure: process.env.NODE_ENV === 'production', maxAge: 8 * 60 * 60 * 1000 });
 }
 app.use('/api', async (req, res, next) => {
+    const mentorProtected = req.path.startsWith('/mentor/')
+        && !['/mentor/login', '/mentor/request-otp', '/mentor/verify-otp'].includes(req.path);
     const role = req.path.startsWith('/admin/') && req.path !== '/admin/login' ? 'admin'
-        : (/^\/(faculty\/|attendance\/|students$)/.test(req.path) ? 'faculty' : null);
+        : (/^\/(faculty\/|attendance\/|students$)/.test(req.path) ? 'faculty'
+        : (mentorProtected ? 'mentor' : null));
     if (!role) return next();
     const cookie = (req.headers.cookie || '').split(';').map(c => c.trim()).find(c => c.startsWith(`${role}_session=`));
     const token = cookie?.slice(cookie.indexOf('=') + 1);
@@ -71,6 +74,13 @@ app.use('/api', async (req, res, next) => {
         }
         const auth = { user: { id: session.user_id } };
         req.auth = auth;
+        if (role === 'mentor') {
+            const mentor = await get(db, 'SELECT mentor_id, name, email FROM mentors WHERE mentor_id = ?', [auth.user.id]);
+            if (!mentor) return res.status(401).json({ success: false, message: 'Mentor account unavailable. Please log in again.' });
+            auth.user.name = mentor.name;
+            auth.user.email = mentor.email;
+            return next();
+        }
         if (role === 'faculty') {
             if (req.query.faculty_id && req.query.faculty_id !== auth.user.id) return res.status(403).json({ message: 'Faculty access denied.' });
             if (req.body) {
@@ -93,7 +103,7 @@ app.use('/api', async (req, res, next) => {
     }
 });
 app.post('/api/logout', async (req, res) => {
-    for (const role of ['admin', 'faculty']) {
+    for (const role of ['admin', 'faculty', 'mentor']) {
         const cookie = (req.headers.cookie || '').split(';').map(c => c.trim()).find(c => c.startsWith(`${role}_session=`));
         if (cookie) await deleteSession(db, cookie.slice(cookie.indexOf('=') + 1));
         res.clearCookie(`${role}_session`);
@@ -101,7 +111,7 @@ app.post('/api/logout', async (req, res) => {
     res.json({ success: true });
 });
 app.use('/api', (req, res, next) => {
-    if (req.body && typeof req.body.password === 'string' && !['/login', '/admin/login'].includes(req.path)) {
+    if (req.body && typeof req.body.password === 'string' && !['/login', '/admin/login', '/mentor/login'].includes(req.path)) {
         if (req.body.password.trim()) req.body.password = hashPassword(req.body.password.trim());
     }
     next();
@@ -113,6 +123,7 @@ app.use('/api', (req, res, next) => {
 const CAMPUS_LAT = parseFloat(process.env.CAMPUS_LAT) || 17.4725;
 const CAMPUS_LNG = parseFloat(process.env.CAMPUS_LNG) || 78.6888;
 const ALLOWED_RADIUS_METERS = parseInt(process.env.CAMPUS_RADIUS_METERS, 10) || 20000;
+const ATTENDANCE_THRESHOLD = Math.min(100, Math.max(1, Number(process.env.ATTENDANCE_THRESHOLD) || 75));
 
 function calculateDistanceMeters(lat1, lon1, lat2, lon2) {
     const R = 6371e3; // Earth radius in meters
@@ -222,6 +233,71 @@ app.post('/api/admin/login', async (req, res) => {
         res.json({ success: true, admin: { id: row.admin_id, name: row.name, email: row.email, role: row.role } });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Login unavailable. Please retry.' });
+    }
+});
+
+// =========================================================================
+// MENTOR AUTHENTICATION (password + email OTP fallback)
+// =========================================================================
+
+app.post('/api/mentor/login', async (req, res) => {
+    const { email, password } = req.body;
+    if (!email || !password) return res.status(400).json({ success: false, message: 'Enter your email and password.' });
+    try {
+        const mentor = await get(db, `SELECT mentor_id, name, email, password FROM mentors WHERE LOWER(email) = LOWER(?)`, [email.trim()]);
+        if (!mentor || !mentor.password || !verifyPassword(password, mentor.password)) {
+            return res.status(401).json({ success: false, message: 'Invalid mentor credentials. Use email OTP if you have not set a password.' });
+        }
+        await issueSession(res, 'mentor', { id: String(mentor.mentor_id), name: mentor.name });
+        res.json({ success: true, mentor: { id: mentor.mentor_id, name: mentor.name, email: mentor.email } });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Login unavailable. Please retry.' });
+    }
+});
+
+app.post('/api/mentor/request-otp', async (req, res) => {
+    const email = (req.body.email || '').toLowerCase().trim();
+    if (!email) return res.status(400).json({ success: false, message: 'Enter your registered email.' });
+    try {
+        const mentor = await get(db, `SELECT mentor_id, name, email FROM mentors WHERE LOWER(email) = ?`, [email]);
+        if (mentor) {
+            const otp = crypto.randomInt(100000, 1000000).toString();
+            await setOtp(db, email, 'mentor', otp, Date.now() + 10 * 60 * 1000);
+            try {
+                await transporter.sendMail({
+                    from: '"ACE Mentor Portal" <no-reply@college.edu>',
+                    to: mentor.email,
+                    subject: '[Mentor Portal] Login OTP',
+                    text: `Dear ${mentor.name},\n\nYour one-time login code for the Mentor Attendance Portal is:\n\n${otp}\n\nThis code is valid for 10 minutes. Do not share it.`
+                });
+            } catch (mailErr) {
+                await takeOtp(db, email, 'mentor').catch(() => {});
+                return res.status(502).json({ success: false, message: 'Unable to send the OTP email. Please try again.' });
+            }
+        }
+        // Do not reveal whether an email is registered.
+        res.json({ success: true, message: 'If this email is registered as a mentor, an OTP has been sent.' });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to request an OTP.' });
+    }
+});
+
+app.post('/api/mentor/verify-otp', async (req, res) => {
+    const email = (req.body.email || '').toLowerCase().trim();
+    const otp = (req.body.otp || '').trim();
+    if (!email || !otp) return res.status(400).json({ success: false, message: 'Enter your email and OTP.' });
+    try {
+        const mentor = await get(db, `SELECT mentor_id, name, email FROM mentors WHERE LOWER(email) = ?`, [email]);
+        if (!mentor) return res.status(401).json({ success: false, message: 'Invalid or expired OTP.' });
+        const record = await get(db, `SELECT otp, expires_at FROM otp_codes WHERE email = ? AND purpose = 'mentor'`, [email]);
+        if (!record || Date.now() > record.expires_at || record.otp !== otp) {
+            return res.status(401).json({ success: false, message: 'Invalid or expired OTP. Request a new code.' });
+        }
+        await takeOtp(db, email, 'mentor');
+        await issueSession(res, 'mentor', { id: String(mentor.mentor_id), name: mentor.name });
+        res.json({ success: true, mentor: { id: mentor.mentor_id, name: mentor.name, email: mentor.email } });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to verify the OTP.' });
     }
 });
 
@@ -497,18 +573,28 @@ app.delete('/api/admin/faculty/:faculty_id', (req, res) => {
 
 // Mentors
 app.get('/api/admin/mentors', (req, res) => {
-    db.all(`SELECT * FROM mentors ORDER BY name ASC`, [], (err, rows) => res.json(rows || []));
+    db.all(`SELECT mentor_id, name, email,
+                CASE WHEN password IS NOT NULL AND password != '' THEN 1 ELSE 0 END AS has_password
+            FROM mentors ORDER BY name ASC`, [], (err, rows) => res.json(rows || []));
 });
 app.post('/api/admin/mentors', (req, res) => {
-    db.run(`INSERT INTO mentors (name, email) VALUES (?, ?)`, [req.body.name.trim(), req.body.email.trim()], function(err) {
+    const password = typeof req.body.password === 'string' ? req.body.password.trim() : '';
+    db.run(`INSERT INTO mentors (name, email, password) VALUES (?, ?, ?)`,
+        [req.body.name.trim(), req.body.email.trim(), password], function(err) {
         if (err) return res.status(400).json({ success: false, message: 'Email already registered.' });
-        res.json({ success: true, message: 'Mentor registered.' });
+        res.json({ success: true, message: password ? 'Mentor registered with a login password.' : 'Mentor registered. They can log in with an email OTP.' });
     });
 });
 app.put('/api/admin/mentors/:id', (req, res) => {
-    db.run(`UPDATE mentors SET name = ?, email = ? WHERE mentor_id = ?`, [req.body.name.trim(), req.body.email.trim(), req.params.id], function(err) {
+    const password = typeof req.body.password === 'string' ? req.body.password.trim() : '';
+    let query = `UPDATE mentors SET name = ?, email = ?`;
+    const params = [req.body.name.trim(), req.body.email.trim()];
+    if (password) { query += `, password = ?`; params.push(password); }
+    query += ` WHERE mentor_id = ?`;
+    params.push(req.params.id);
+    db.run(query, params, function(err) {
         if (err) return res.status(500).json({ success: false, message: err.message });
-        res.json({ success: true, message: 'Mentor updated.' });
+        res.json({ success: true, message: password ? 'Mentor updated and password changed.' : 'Mentor updated.' });
     });
 });
 app.delete('/api/admin/mentors/:mentor_id', (req, res) => {
@@ -604,6 +690,199 @@ app.delete('/api/admin/students/:roll_number', (req, res) => {
         if (err) return res.status(500).json({ success: false, message: err.message });
         res.json({ success: true, message: 'Student deleted.' });
     });
+});
+
+// =========================================================================
+// MENTOR PORTAL: ASSIGNED SECTIONS, STUDENT ATTENDANCE, CALL-LIST CSV
+// =========================================================================
+
+function csvCell(value) {
+    let text = String(value ?? '');
+    if (/^[=+@-]/.test(text)) text = "'" + text;
+    return '"' + text.replace(/"/g, '""') + '"';
+}
+
+function buildCallListCsv(rows) {
+    const lines = [
+        ['Roll No', 'Student Name', 'Parent Number', 'Attendance %', 'Present', 'Absent', 'Total Sessions']
+            .map(csvCell).join(',')
+    ];
+    for (const row of rows) {
+        lines.push([
+            row.roll_number,
+            row.name,
+            row.parent_number || '',
+            row.percentage === null || row.percentage === undefined ? '' : Number(row.percentage).toFixed(1),
+            row.present,
+            row.absent,
+            row.total
+        ].map(csvCell).join(','));
+    }
+    return lines.join('\r\n');
+}
+
+async function getMentorSections(mentorId) {
+    return all(db, `
+        SELECT sm.section_id, sm.branch_id, sm.dept_id, sm.batch_year_id,
+               b.name AS branch_name, d.name AS dept_name, by.name AS batch_year_name, s.name AS sec_name,
+               (SELECT COUNT(*) FROM students st
+                 WHERE st.branch_id = sm.branch_id AND st.dept_id = sm.dept_id
+                   AND st.batch_year_id = sm.batch_year_id AND st.section_id = sm.section_id) AS student_count
+        FROM section_mentors sm
+        JOIN branches b ON b.id = sm.branch_id
+        JOIN departments d ON d.id = sm.dept_id
+        JOIN batch_years by ON by.id = sm.batch_year_id
+        JOIN sections s ON s.id = sm.section_id
+        WHERE sm.mentor_id = ?
+        ORDER BY b.name ASC, d.name ASC, by.name ASC, s.name ASC
+    `, [mentorId]);
+}
+
+async function getMentorSection(mentorId, sectionId) {
+    const sections = await getMentorSections(mentorId);
+    return sections.find(section => Number(section.section_id) === Number(sectionId)) || null;
+}
+
+async function buildSectionAttendance(section, options = {}) {
+    const fromDate = validDate(options.fromDate) ? options.fromDate : '';
+    const toDate = validDate(options.toDate) ? options.toDate : '';
+    const threshold = Number.isFinite(Number(options.threshold))
+        ? Math.min(100, Math.max(1, Number(options.threshold)))
+        : ATTENDANCE_THRESHOLD;
+    const scope = [section.branch_id, section.dept_id, section.batch_year_id, section.section_id];
+
+    let logDateFilter = '';
+    const logDateParams = [];
+    if (fromDate) { logDateFilter += ' AND al.date >= ?'; logDateParams.push(fromDate); }
+    if (toDate) { logDateFilter += ' AND al.date <= ?'; logDateParams.push(toDate); }
+
+    const students = await all(db, `
+        SELECT st.roll_number, st.name, st.phone_number, st.parent_number,
+               COALESCE(SUM(CASE WHEN al.status = 'Present' THEN 1 ELSE 0 END), 0) AS present,
+               COALESCE(SUM(CASE WHEN al.status = 'Absent' THEN 1 ELSE 0 END), 0) AS absent,
+               COUNT(al.id) AS total
+        FROM students st
+        LEFT JOIN attendance_logs al
+               ON al.roll_number = st.roll_number
+              AND al.branch_id = st.branch_id
+              AND al.dept_id = st.dept_id
+              AND al.batch_year_id = st.batch_year_id
+              AND al.section_id = st.section_id
+              AND al.status != 'Leisure'
+              ${logDateFilter}
+        WHERE st.branch_id = ? AND st.dept_id = ? AND st.batch_year_id = ? AND st.section_id = ?
+        GROUP BY st.roll_number, st.name, st.phone_number, st.parent_number
+        ORDER BY st.roll_number ASC
+    `, [...logDateParams, ...scope]);
+
+    const rows = students.map(student => {
+        const present = Number(student.present) || 0;
+        const absent = Number(student.absent) || 0;
+        const total = present + absent;
+        const percentage = total ? Math.round((present / total) * 1000) / 10 : null;
+        return {
+            roll_number: student.roll_number,
+            name: student.name,
+            phone_number: student.phone_number || '',
+            parent_number: student.parent_number || '',
+            present,
+            absent,
+            total,
+            percentage,
+            below_threshold: total > 0 && percentage < threshold
+        };
+    });
+
+    let sessionDateFilter = '';
+    const sessionDateParams = [];
+    if (fromDate) { sessionDateFilter += ' AND date >= ?'; sessionDateParams.push(fromDate); }
+    if (toDate) { sessionDateFilter += ' AND date <= ?'; sessionDateParams.push(toDate); }
+
+    const sessions = await all(db, `
+        SELECT date, hour_slot, subject_name, faculty_name, submission_time,
+               SUM(CASE WHEN status = 'Present' THEN 1 ELSE 0 END) AS present_count,
+               SUM(CASE WHEN status = 'Absent' THEN 1 ELSE 0 END) AS absent_count,
+               COUNT(*) AS total_count,
+               CASE WHEN MIN(status) = 'Leisure' AND MAX(status) = 'Leisure' THEN 1 ELSE 0 END AS is_leisure
+        FROM attendance_logs
+        WHERE branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ?
+          ${sessionDateFilter}
+        GROUP BY date, hour_slot, subject_name, faculty_name, submission_time
+        ORDER BY date DESC, hour_slot ASC
+    `, [...scope, ...sessionDateParams]);
+
+    const withData = rows.filter(row => row.total > 0);
+    const averageAttendance = withData.length
+        ? Math.round((withData.reduce((sum, row) => sum + row.percentage, 0) / withData.length) * 10) / 10
+        : 0;
+
+    return {
+        section,
+        students: rows,
+        sessions: sessions.map(session => ({
+            ...session,
+            present_count: Number(session.present_count) || 0,
+            absent_count: Number(session.absent_count) || 0,
+            total_count: Number(session.total_count) || 0,
+            is_leisure: Boolean(Number(session.is_leisure))
+        })),
+        summary: {
+            total_students: rows.length,
+            students_with_data: withData.length,
+            average_attendance: averageAttendance,
+            below_threshold: rows.filter(row => row.below_threshold).length,
+            conducted_sessions: sessions.filter(session => !Number(session.is_leisure)).length,
+            threshold
+        }
+    };
+}
+
+app.get('/api/mentor/sections', async (req, res) => {
+    try {
+        const sections = await getMentorSections(req.auth.user.id);
+        res.json({
+            success: true,
+            mentor: { id: req.auth.user.id, name: req.auth.user.name, email: req.auth.user.email },
+            sections
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to load your sections.' });
+    }
+});
+
+app.get('/api/mentor/sections/:section_id/attendance', async (req, res) => {
+    try {
+        const section = await getMentorSection(req.auth.user.id, req.params.section_id);
+        if (!section) return res.status(403).json({ success: false, message: 'This section is not assigned to you.' });
+        const { from_date, to_date, threshold } = req.query;
+        if ((from_date && !validDate(from_date)) || (to_date && !validDate(to_date)) || (from_date && to_date && from_date > to_date)) {
+            return res.status(400).json({ success: false, message: 'Invalid date range.' });
+        }
+        const data = await buildSectionAttendance(section, { fromDate: from_date, toDate: to_date, threshold });
+        res.json({ success: true, ...data });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to load attendance.' });
+    }
+});
+
+app.get('/api/mentor/sections/:section_id/attendance.csv', async (req, res) => {
+    try {
+        const section = await getMentorSection(req.auth.user.id, req.params.section_id);
+        if (!section) return res.status(403).json({ success: false, message: 'This section is not assigned to you.' });
+        const { from_date, to_date, threshold } = req.query;
+        if ((from_date && !validDate(from_date)) || (to_date && !validDate(to_date)) || (from_date && to_date && from_date > to_date)) {
+            return res.status(400).json({ success: false, message: 'Invalid date range.' });
+        }
+        const data = await buildSectionAttendance(section, { fromDate: from_date, toDate: to_date, threshold });
+        const below = data.students.filter(student => student.below_threshold);
+        const safeSection = String(section.sec_name || 'section').replace(/[^A-Za-z0-9_-]+/g, '_');
+        const stamp = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="Below_${data.summary.threshold}_Attendance_${safeSection}_${stamp}.csv"`);
+        res.send('\uFEFF' + buildCallListCsv(below));
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to export attendance.' });
+    }
 });
 
 // =========================================================================
@@ -1000,11 +1279,29 @@ app.post('/api/attendance/submit', async (req, res) => {
                 });
             }
 
+            // Daily call list: students whose attendance is below the configured threshold.
+            const callListData = await buildSectionAttendance({
+                branch_id: classDetails.branch_id,
+                dept_id: classDetails.dept_id,
+                batch_year_id: classDetails.batch_year_id,
+                section_id: classDetails.section_id
+            }, { toDate: date, threshold: ATTENDANCE_THRESHOLD });
+            const callList = callListData.students.filter(student => student.below_threshold);
+            if (callList.length) {
+                mentorAttachments.push({
+                    filename: `Below_${ATTENDANCE_THRESHOLD}_Call_List_${date}.csv`,
+                    content: Buffer.from('\uFEFF' + buildCallListCsv(callList), 'utf8')
+                });
+            }
+            const callListNote = callList.length
+                ? `\n\nToday's call list: ${callList.length} student(s) are below ${ATTENDANCE_THRESHOLD}% attendance. The CSV call list is attached.`
+                : `\n\nNo students are below ${ATTENDANCE_THRESHOLD}% attendance today.`;
+
             await transporter.sendMail({
                 from: '"ACE College Attendance" <no-reply@college.edu>',
                 to: sectionInfo.mentor_email,
                 subject: `[Attendance Statement + Photo] ${sectionInfo.branch_name} ${sectionInfo.dept_name} Sec-${sectionInfo.sec_name} (${hourSlot})`,
-                text: `Respected Mentor (${sectionInfo.mentor_name}),\n\nAttendance for ${hourSlot} was recorded at ${submissionTime} by ${facultyName}.\n\nAttached is the official statement and watermarked classroom photo.`,
+                text: `Respected Mentor (${sectionInfo.mentor_name}),\n\nAttendance for ${hourSlot} was recorded at ${submissionTime} by ${facultyName}.\n\nAttached is the official statement and watermarked classroom photo.${callListNote}`,
                 attachments: mentorAttachments
             });
 
@@ -1497,6 +1794,7 @@ function drawSingleDoeSlip(doc, x, y, w, h, sectionInfo, date, hourSlot, session
 // Clean Routes
 app.get('/doe', (req, res) => res.sendFile(path.join(__dirname, 'public', 'doe.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
+app.get('/mentor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'mentor.html')));
 
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);

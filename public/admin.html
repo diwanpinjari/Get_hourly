@@ -258,7 +258,7 @@
             <h2 class="text-lg font-bold text-slate-800 mb-4">Mentors & Class Section Allocations</h2>
             <div class="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-6">
                 <h3 class="font-extrabold text-xs text-slate-700 uppercase tracking-wider mb-3">1. Register New Mentor</h3>
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                <div class="grid grid-cols-1 md:grid-cols-4 gap-3 items-end">
                     <div>
                         <label class="block text-xs font-bold text-slate-700 mb-1">Mentor Full Name</label>
                         <input type="text" id="mentorNameInput" placeholder="e.g. Dr. Rajesh Kumar" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
@@ -266,6 +266,10 @@
                     <div>
                         <label class="block text-xs font-bold text-slate-700 mb-1">Mentor Email Address</label>
                         <input type="email" id="mentorEmailInput" placeholder="e.g. rajesh@college.edu" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 mb-1">Login Password (optional)</label>
+                        <input type="password" id="mentorPasswordInput" placeholder="Leave blank for OTP-only login" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
                     </div>
                     <button onclick="addMentor()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
                         + Register Mentor
@@ -282,6 +286,7 @@
                                 <th class="p-3">Mentor ID</th>
                                 <th class="p-3">Mentor Name</th>
                                 <th class="p-3">Email Address</th>
+                                <th class="p-3">Login</th>
                                 <th class="p-3 text-right">Actions</th>
                             </tr>
                         </thead>
@@ -1031,6 +1036,11 @@
                         <td class="p-3 font-mono font-bold text-slate-600">${m.mentor_id}</td>
                         <td class="p-3 font-bold text-slate-800">${escapeHtml(m.name)}</td>
                         <td class="p-3 text-blue-600 font-mono">${escapeHtml(m.email)}</td>
+                        <td class="p-3">
+                            ${m.has_password
+                                ? '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-1 rounded-full">Password set</span>'
+                                : '<span class="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2 py-1 rounded-full">OTP only</span>'}
+                        </td>
                         <td class="p-3 text-right space-x-2">
                             <button onclick="editMentor(${m.mentor_id}, ${jsArg(m.name)}, ${jsArg(m.email)})" class="text-blue-600 hover:underline font-bold">Edit</button>
                             <button onclick="deleteMentor(${m.mentor_id})" class="text-rose-600 hover:underline font-bold">Delete</button>
@@ -1043,17 +1053,19 @@
         async function addMentor() {
             const name = document.getElementById('mentorNameInput').value.trim();
             const email = document.getElementById('mentorEmailInput').value.trim();
+            const password = document.getElementById('mentorPasswordInput').value.trim();
             if (!name || !email) return alert("Fill all mentor fields.");
 
             const res = await fetch('/api/admin/mentors', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, email })
+                body: JSON.stringify({ name, email, password })
             });
             const data = await res.json();
             if (data.success) {
                 document.getElementById('mentorNameInput').value = '';
                 document.getElementById('mentorEmailInput').value = '';
+                document.getElementById('mentorPasswordInput').value = '';
                 await autoRefreshAll();
             } else alert(data.message);
         }
@@ -1061,15 +1073,17 @@
         function editMentor(id, currentName, currentEmail) {
             openEditModal(`Edit Mentor Details`, [
                 { id: 'editMentorName', label: 'Mentor Full Name', value: currentName },
-                { id: 'editMentorEmail', label: 'Mentor Email Address', value: currentEmail, type: 'email' }
+                { id: 'editMentorEmail', label: 'Mentor Email Address', value: currentEmail, type: 'email' },
+                { id: 'editMentorPassword', label: 'New Password (leave blank to keep current)', value: '', type: 'password', placeholder: 'Optional' }
             ], async () => {
                 const name = document.getElementById('editMentorName').value.trim();
                 const email = document.getElementById('editMentorEmail').value.trim();
+                const password = document.getElementById('editMentorPassword').value.trim();
 
                 const res = await fetch(`/api/admin/mentors/${id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, email })
+                    body: JSON.stringify({ name, email, password })
                 });
                 const data = await res.json();
                 if (data.success) { closeModal(); await autoRefreshAll(); } else alert(data.message);
