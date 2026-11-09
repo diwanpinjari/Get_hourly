@@ -270,6 +270,24 @@ test('daily call list uses complete-day attendance, not hourly percentage', asyn
     assert.match(mail.text, /Absentees today: 1/);
 });
 
+test('daily call list email still sends when nobody is absent', async () => {
+    const insertPresent = roll => run(db, `
+        INSERT INTO attendance_logs
+            (roll_number, date, hour_slot, subject_name, status, faculty_id, faculty_name, submission_time, branch_id, dept_id, batch_year_id, section_id)
+        VALUES (?, '2026-11-02', 'Hour 1', 'Maths', 'Present', 'F1', 'F1', '10:00:00 AM', ?, ?, ?, ?)
+    `, [roll, classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id]);
+    await insertPresent('S001');
+    await insertPresent('S002');
+
+    const result = await request('/api/cron/daily-call-list?date=2026-11-02&secret=test-cron-secret');
+    assert.equal(result.status, 200);
+    assert.equal(result.data.sent, 1);
+    const mail = messages.findLast(message => message.subject.includes('2026-11-02'));
+    assert.ok(mail);
+    assert.equal(mail.attachments.some(attachment => attachment.filename.endsWith('.csv')), false);
+    assert.match(mail.text, /No students were absent today/);
+});
+
 test('daily call list endpoint rejects callers without the cron secret', async () => {
     assert.equal((await request('/api/cron/daily-call-list?date=2026-10-31')).status, 401);
 });
