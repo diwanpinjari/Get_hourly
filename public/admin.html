@@ -269,7 +269,7 @@
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-700 mb-1">Login Password (optional)</label>
-                        <input type="password" id="mentorPasswordInput" placeholder="Leave blank for OTP-only login" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
+                        <input type="password" id="mentorPasswordInput" placeholder="Leave blank — mentor sets it via email OTP" class="w-full border border-slate-300 rounded-lg p-2.5 text-xs font-semibold">
                     </div>
                     <button onclick="addMentor()" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2.5 px-4 rounded-lg transition shadow-sm">
                         + Register Mentor
@@ -1039,7 +1039,7 @@
                         <td class="p-3">
                             ${m.has_password
                                 ? '<span class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-bold px-2 py-1 rounded-full">Password set</span>'
-                                : '<span class="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2 py-1 rounded-full">OTP only</span>'}
+                                : '<span class="bg-amber-50 text-amber-700 border border-amber-200 text-[10px] font-bold px-2 py-1 rounded-full">Password not set</span>'}
                         </td>
                         <td class="p-3 text-right space-x-2">
                             <button onclick="editMentor(${m.mentor_id}, ${jsArg(m.name)}, ${jsArg(m.email)})" class="text-blue-600 hover:underline font-bold">Edit</button>
@@ -1074,7 +1074,7 @@
             openEditModal(`Edit Mentor Details`, [
                 { id: 'editMentorName', label: 'Mentor Full Name', value: currentName },
                 { id: 'editMentorEmail', label: 'Mentor Email Address', value: currentEmail, type: 'email' },
-                { id: 'editMentorPassword', label: 'New Password (leave blank to keep current)', value: '', type: 'password', placeholder: 'Optional' }
+                { id: 'editMentorPassword', label: 'New Password (leave blank to keep current)', value: '', type: 'password', placeholder: 'Optional — mentor can also set it via email OTP' }
             ], async () => {
                 const name = document.getElementById('editMentorName').value.trim();
                 const email = document.getElementById('editMentorEmail').value.trim();

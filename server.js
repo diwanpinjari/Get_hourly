@@ -26,7 +26,7 @@ app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.use('/api', async (req, res, next) => {
-    if (/login$|request-otp$|verify-otp$|request-delete-otp$/.test(req.path)) {
+    if (/login$|request-otp$|verify-otp$|request-delete-otp$|setup-password$/.test(req.path)) {
         const key = `${req.ip}:${req.path}`;
         try {
             if (!(await hitRateLimit(db, key, 20, 10 * 60 * 1000))) {
@@ -59,7 +59,7 @@ async function issueSession(res, role, user) {
 }
 app.use('/api', async (req, res, next) => {
     const mentorProtected = req.path.startsWith('/mentor/')
-        && !['/mentor/login', '/mentor/request-otp', '/mentor/verify-otp'].includes(req.path);
+        && !['/mentor/login', '/mentor/request-otp', '/mentor/verify-otp', '/mentor/setup-password'].includes(req.path);
     const role = req.path.startsWith('/admin/') && req.path !== '/admin/login' ? 'admin'
         : (/^\/(faculty\/|attendance\/|students$)/.test(req.path) ? 'faculty'
         : (mentorProtected ? 'mentor' : null));
@@ -111,7 +111,7 @@ app.post('/api/logout', async (req, res) => {
     res.json({ success: true });
 });
 app.use('/api', (req, res, next) => {
-    if (req.body && typeof req.body.password === 'string' && !['/login', '/admin/login', '/mentor/login'].includes(req.path)) {
+    if (req.body && typeof req.body.password === 'string' && !['/login', '/admin/login', '/mentor/login', '/mentor/setup-password'].includes(req.path)) {
         if (req.body.password.trim()) req.body.password = hashPassword(req.body.password.trim());
     }
     next();
@@ -245,8 +245,27 @@ app.post('/api/mentor/login', async (req, res) => {
     if (!email || !password) return res.status(400).json({ success: false, message: 'Enter your email and password.' });
     try {
         const mentor = await get(db, `SELECT mentor_id, name, email, password FROM mentors WHERE LOWER(email) = LOWER(?)`, [email.trim()]);
-        if (!mentor || !mentor.password || !verifyPassword(password, mentor.password)) {
-            return res.status(401).json({ success: false, message: 'Invalid mentor credentials. Use email OTP if you have not set a password.' });
+        if (!mentor) {
+            return res.status(404).json({
+                success: false,
+                code: 'MENTOR_NOT_FOUND',
+                message: 'This email is not registered as a mentor. Contact the administrator.'
+            });
+        }
+        if (!mentor.password) {
+            return res.status(409).json({
+                success: false,
+                code: 'PASSWORD_SETUP_REQUIRED',
+                message: 'You have not set a password yet. Set it up with your email OTP.',
+                email: mentor.email
+            });
+        }
+        if (!verifyPassword(password.trim(), mentor.password)) {
+            return res.status(401).json({
+                success: false,
+                code: 'INVALID_PASSWORD',
+                message: 'Incorrect password. Try again or use Email OTP.'
+            });
         }
         await issueSession(res, 'mentor', { id: String(mentor.mentor_id), name: mentor.name });
         res.json({ success: true, mentor: { id: mentor.mentor_id, name: mentor.name, email: mentor.email } });
@@ -257,26 +276,44 @@ app.post('/api/mentor/login', async (req, res) => {
 
 app.post('/api/mentor/request-otp', async (req, res) => {
     const email = (req.body.email || '').toLowerCase().trim();
+    const setup = ['setup', 'mentor_setup'].includes(req.body.purpose);
     if (!email) return res.status(400).json({ success: false, message: 'Enter your registered email.' });
     try {
-        const mentor = await get(db, `SELECT mentor_id, name, email FROM mentors WHERE LOWER(email) = ?`, [email]);
-        if (mentor) {
-            const otp = crypto.randomInt(100000, 1000000).toString();
-            await setOtp(db, email, 'mentor', otp, Date.now() + 10 * 60 * 1000);
-            try {
-                await transporter.sendMail({
-                    from: '"ACE Mentor Portal" <no-reply@college.edu>',
-                    to: mentor.email,
-                    subject: '[Mentor Portal] Login OTP',
-                    text: `Dear ${mentor.name},\n\nYour one-time login code for the Mentor Attendance Portal is:\n\n${otp}\n\nThis code is valid for 10 minutes. Do not share it.`
-                });
-            } catch (mailErr) {
-                await takeOtp(db, email, 'mentor').catch(() => {});
-                return res.status(502).json({ success: false, message: 'Unable to send the OTP email. Please try again.' });
-            }
+        const mentor = await get(db, `SELECT mentor_id, name, email, password FROM mentors WHERE LOWER(email) = ?`, [email]);
+        if (!mentor) {
+            return res.status(404).json({
+                success: false,
+                code: 'MENTOR_NOT_FOUND',
+                message: 'This email is not registered as a mentor. Contact the administrator.'
+            });
         }
-        // Do not reveal whether an email is registered.
-        res.json({ success: true, message: 'If this email is registered as a mentor, an OTP has been sent.' });
+        if (setup && mentor.password) {
+            return res.status(409).json({
+                success: false,
+                code: 'PASSWORD_ALREADY_SET',
+                message: 'Your password is already set. Please sign in or use Email OTP.'
+            });
+        }
+        const purpose = setup ? 'mentor_setup' : 'mentor';
+        const otp = crypto.randomInt(100000, 1000000).toString();
+        await setOtp(db, email, purpose, otp, Date.now() + 10 * 60 * 1000);
+        try {
+            await transporter.sendMail({
+                from: '"ACE Mentor Portal" <no-reply@college.edu>',
+                to: mentor.email,
+                subject: setup ? '[Mentor Portal] Password Setup OTP' : '[Mentor Portal] Login OTP',
+                text: `Dear ${mentor.name},\n\nYour one-time ${setup ? 'password setup' : 'login'} code for the Mentor Attendance Portal is:\n\n${otp}\n\nThis code is valid for 10 minutes. Do not share it.`
+            });
+        } catch (mailErr) {
+            await takeOtp(db, email, purpose).catch(() => {});
+            return res.status(502).json({ success: false, message: 'Unable to send the OTP email. Please try again.' });
+        }
+        res.json({
+            success: true,
+            message: setup
+                ? 'Password setup OTP sent to your registered email.'
+                : 'Login OTP sent to your registered email.'
+        });
     } catch (err) {
         res.status(500).json({ success: false, message: 'Unable to request an OTP.' });
     }
@@ -288,7 +325,13 @@ app.post('/api/mentor/verify-otp', async (req, res) => {
     if (!email || !otp) return res.status(400).json({ success: false, message: 'Enter your email and OTP.' });
     try {
         const mentor = await get(db, `SELECT mentor_id, name, email FROM mentors WHERE LOWER(email) = ?`, [email]);
-        if (!mentor) return res.status(401).json({ success: false, message: 'Invalid or expired OTP.' });
+        if (!mentor) {
+            return res.status(404).json({
+                success: false,
+                code: 'MENTOR_NOT_FOUND',
+                message: 'This email is not registered as a mentor. Contact the administrator.'
+            });
+        }
         const record = await get(db, `SELECT otp, expires_at FROM otp_codes WHERE email = ? AND purpose = 'mentor'`, [email]);
         if (!record || Date.now() > record.expires_at || record.otp !== otp) {
             return res.status(401).json({ success: false, message: 'Invalid or expired OTP. Request a new code.' });
@@ -300,6 +343,50 @@ app.post('/api/mentor/verify-otp', async (req, res) => {
         res.status(500).json({ success: false, message: 'Unable to verify the OTP.' });
     }
 });
+
+app.post('/api/mentor/setup-password', async (req, res) => {
+    const email = (req.body.email || '').toLowerCase().trim();
+    const otp = (req.body.otp || '').trim();
+    const password = typeof req.body.password === 'string' ? req.body.password.trim() : '';
+    if (!email || !otp || !password) {
+        return res.status(400).json({ success: false, message: 'Enter your email, OTP, and new password.' });
+    }
+    if (password.length < 8) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 8 characters.' });
+    }
+    try {
+        const mentor = await get(db, `SELECT mentor_id, name, email, password FROM mentors WHERE LOWER(email) = ?`, [email]);
+        if (!mentor) {
+            return res.status(404).json({
+                success: false,
+                code: 'MENTOR_NOT_FOUND',
+                message: 'This email is not registered as a mentor. Contact the administrator.'
+            });
+        }
+        if (mentor.password) {
+            return res.status(409).json({
+                success: false,
+                code: 'PASSWORD_ALREADY_SET',
+                message: 'Your password is already set. Please sign in or use Email OTP.'
+            });
+        }
+        const record = await get(db, `SELECT otp, expires_at FROM otp_codes WHERE email = ? AND purpose = 'mentor_setup'`, [email]);
+        if (!record || Date.now() > record.expires_at || record.otp !== otp) {
+            return res.status(401).json({ success: false, message: 'Invalid or expired setup OTP. Request a new code.' });
+        }
+        await takeOtp(db, email, 'mentor_setup');
+        await run(db, 'UPDATE mentors SET password = ? WHERE mentor_id = ?', [hashPassword(password), mentor.mentor_id]);
+        await issueSession(res, 'mentor', { id: String(mentor.mentor_id), name: mentor.name });
+        res.json({
+            success: true,
+            message: 'Password set successfully.',
+            mentor: { id: mentor.mentor_id, name: mentor.name, email: mentor.email }
+        });
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to set the password. Please retry.' });
+    }
+});
+
 
 app.get('/api/admin/admins', (req, res) => {
     db.all(`SELECT admin_id, name, email, role, created_at FROM admin_users ORDER BY created_at ASC`, [], (err, rows) => {
@@ -582,7 +669,7 @@ app.post('/api/admin/mentors', (req, res) => {
     db.run(`INSERT INTO mentors (name, email, password) VALUES (?, ?, ?)`,
         [req.body.name.trim(), req.body.email.trim(), password], function(err) {
         if (err) return res.status(400).json({ success: false, message: 'Email already registered.' });
-        res.json({ success: true, message: password ? 'Mentor registered with a login password.' : 'Mentor registered. They can log in with an email OTP.' });
+        res.json({ success: true, message: password ? 'Mentor registered with a login password.' : 'Mentor registered. They can log in with an email OTP or set their own password.' });
     });
 });
 app.put('/api/admin/mentors/:id', (req, res) => {
@@ -704,7 +791,7 @@ function csvCell(value) {
 
 function buildCallListCsv(rows) {
     const lines = [
-        ['Roll No', 'Student Name', 'Parent Number', 'Attendance %', 'Present', 'Absent', 'Total Sessions']
+        ['Roll No', 'Student Name', 'Parent Number', 'Days Present', 'Conducted Days', 'Attendance %']
             .map(csvCell).join(',')
     ];
     for (const row of rows) {
@@ -712,13 +799,20 @@ function buildCallListCsv(rows) {
             row.roll_number,
             row.name,
             row.parent_number || '',
-            row.percentage === null || row.percentage === undefined ? '' : Number(row.percentage).toFixed(1),
-            row.present,
-            row.absent,
-            row.total
+            row.days_present === null || row.days_present === undefined ? '' : Number(row.days_present).toFixed(1),
+            row.conducted_days === null || row.conducted_days === undefined ? '' : row.conducted_days,
+            row.percentage === null || row.percentage === undefined ? '' : Number(row.percentage).toFixed(1)
         ].map(csvCell).join(','));
     }
     return lines.join('\r\n');
+}
+
+// Day credit for a student's attendance in one conducted day:
+// attended more than 50% of that day's conducted sessions -> full day (1),
+// attended up to 50% (but at least one session) -> half day (0.5), none -> 0.
+function dayCredit(attended, conducted) {
+    if (!conducted || attended <= 0) return 0;
+    return attended * 2 > conducted ? 1 : 0.5;
 }
 
 async function getMentorSections(mentorId) {
@@ -775,11 +869,42 @@ async function buildSectionAttendance(section, options = {}) {
         ORDER BY st.roll_number ASC
     `, [...logDateParams, ...scope]);
 
+    // Day-based attendance: conducted days come from distinct recorded dates, and a
+    // student earns full/half/zero day credit per day via dayCredit().
+    const dayAggregates = await all(db, `
+        SELECT al.date, COUNT(DISTINCT al.hour_slot) AS conducted
+        FROM attendance_logs al
+        WHERE al.branch_id = ? AND al.dept_id = ? AND al.batch_year_id = ? AND al.section_id = ?
+          AND al.status != 'Leisure' ${logDateFilter}
+        GROUP BY al.date
+    `, [...scope, ...logDateParams]);
+    const attendanceByDay = await all(db, `
+        SELECT al.roll_number, al.date, SUM(CASE WHEN al.status = 'Present' THEN 1 ELSE 0 END) AS attended
+        FROM attendance_logs al
+        WHERE al.branch_id = ? AND al.dept_id = ? AND al.batch_year_id = ? AND al.section_id = ?
+          AND al.status != 'Leisure' ${logDateFilter}
+        GROUP BY al.roll_number, al.date
+    `, [...scope, ...logDateParams]);
+    const conductedByDate = new Map(dayAggregates.map(row => [row.date, Number(row.conducted) || 0]));
+    const conductedDays = conductedByDate.size;
+    const attendedByStudent = new Map();
+    for (const row of attendanceByDay) {
+        const byDate = attendedByStudent.get(row.roll_number) || new Map();
+        byDate.set(row.date, Number(row.attended) || 0);
+        attendedByStudent.set(row.roll_number, byDate);
+    }
+
     const rows = students.map(student => {
         const present = Number(student.present) || 0;
         const absent = Number(student.absent) || 0;
         const total = present + absent;
-        const percentage = total ? Math.round((present / total) * 1000) / 10 : null;
+        const dayMap = attendedByStudent.get(student.roll_number) || new Map();
+        let daysPresent = 0;
+        for (const [date, conducted] of conductedByDate) {
+            daysPresent += dayCredit(dayMap.get(date) || 0, conducted);
+        }
+        daysPresent = Math.round(daysPresent * 10) / 10;
+        const percentage = conductedDays ? Math.round((daysPresent / conductedDays) * 1000) / 10 : null;
         return {
             roll_number: student.roll_number,
             name: student.name,
@@ -788,8 +913,10 @@ async function buildSectionAttendance(section, options = {}) {
             present,
             absent,
             total,
+            days_present: daysPresent,
+            conducted_days: conductedDays,
             percentage,
-            below_threshold: total > 0 && percentage < threshold
+            below_threshold: percentage !== null && percentage < threshold
         };
     });
 
@@ -811,7 +938,7 @@ async function buildSectionAttendance(section, options = {}) {
         ORDER BY date DESC, hour_slot ASC
     `, [...scope, ...sessionDateParams]);
 
-    const withData = rows.filter(row => row.total > 0);
+    const withData = rows.filter(row => row.percentage !== null);
     const averageAttendance = withData.length
         ? Math.round((withData.reduce((sum, row) => sum + row.percentage, 0) / withData.length) * 10) / 10
         : 0;
@@ -832,6 +959,7 @@ async function buildSectionAttendance(section, options = {}) {
             average_attendance: averageAttendance,
             below_threshold: rows.filter(row => row.below_threshold).length,
             conducted_sessions: sessions.filter(session => !Number(session.is_leisure)).length,
+            conducted_days: conductedDays,
             threshold
         }
     };
@@ -870,20 +998,18 @@ async function buildDailyCallList(section, targetDate, threshold = ATTENDANCE_TH
 
     const rows = students.map(student => {
         const byDate = studentStatus.get(student.roll_number) || new Map();
-        let completeDays = 0;
+        let daysPresent = 0;
         for (const day of conductedDates) {
-            const hours = conductedHours.get(day);
+            const conducted = conductedHours.get(day).size;
             const statuses = byDate.get(day) || new Map();
-            let complete = true;
-            for (const hour of hours) {
-                if (statuses.get(hour) !== 'Present') {
-                    complete = false;
-                    break;
-                }
+            let attended = 0;
+            for (const hour of conductedHours.get(day)) {
+                if (statuses.get(hour) === 'Present') attended += 1;
             }
-            if (complete) completeDays += 1;
+            daysPresent += dayCredit(attended, conducted);
         }
-        const dailyPercentage = conductedDays ? Math.round((completeDays / conductedDays) * 1000) / 10 : null;
+        daysPresent = Math.round(daysPresent * 10) / 10;
+        const dailyPercentage = conductedDays ? Math.round((daysPresent / conductedDays) * 1000) / 10 : null;
         const todayStatuses = byDate.get(targetDate) || new Map();
         const absentHours = [...todayStatuses.entries()]
             .filter(([, status]) => status === 'Absent')
@@ -894,7 +1020,7 @@ async function buildDailyCallList(section, targetDate, threshold = ATTENDANCE_TH
             name: student.name,
             phone_number: student.phone_number || '',
             parent_number: student.parent_number || '',
-            complete_days: completeDays,
+            days_present: daysPresent,
             conducted_days: conductedDays,
             daily_percentage: dailyPercentage,
             absent_hours: absentHours,
@@ -922,7 +1048,7 @@ async function buildDailyCallList(section, targetDate, threshold = ATTENDANCE_TH
 
 function buildDailyCallListCsv(absentees, threshold = ATTENDANCE_THRESHOLD) {
     const lines = [
-        ['Roll No', 'Student Name', 'Parent Number', 'Daily Attendance %', 'Complete Days', 'Conducted Days', "Today's Absent Hours", `Priority (HIGH = below ${threshold}%)`]
+        ['Roll No', 'Student Name', 'Parent Number', 'Daily Attendance %', 'Days Present', 'Conducted Days', "Today's Absent Hours", `Priority (HIGH = below ${threshold}%)`]
             .map(csvCell).join(',')
     ];
     for (const row of absentees) {
@@ -931,7 +1057,7 @@ function buildDailyCallListCsv(absentees, threshold = ATTENDANCE_THRESHOLD) {
             row.name,
             row.parent_number || '',
             row.daily_percentage === null || row.daily_percentage === undefined ? '' : Number(row.daily_percentage).toFixed(1),
-            row.complete_days,
+            row.days_present === null || row.days_present === undefined ? '' : Number(row.days_present).toFixed(1),
             row.conducted_days,
             (row.absent_hours || []).join('; '),
             row.below_threshold ? 'HIGH' : 'NORMAL'
@@ -985,6 +1111,84 @@ app.get('/api/mentor/sections/:section_id/attendance.csv', async (req, res) => {
         res.send('\uFEFF' + buildCallListCsv(below));
     } catch (err) {
         res.status(500).json({ success: false, message: 'Unable to export attendance.' });
+    }
+});
+
+// Overall attendance CSV: every student with day-based attendance, not only below-threshold ones.
+app.get('/api/mentor/sections/:section_id/attendance-all.csv', async (req, res) => {
+    try {
+        const section = await getMentorSection(req.auth.user.id, req.params.section_id);
+        if (!section) return res.status(403).json({ success: false, message: 'This section is not assigned to you.' });
+        const { from_date, to_date, threshold } = req.query;
+        if ((from_date && !validDate(from_date)) || (to_date && !validDate(to_date)) || (from_date && to_date && from_date > to_date)) {
+            return res.status(400).json({ success: false, message: 'Invalid date range.' });
+        }
+        const data = await buildSectionAttendance(section, { fromDate: from_date, toDate: to_date, threshold });
+        const safeSection = String(section.sec_name || 'section').replace(/[^A-Za-z0-9_-]+/g, '_');
+        const stamp = new Date().toISOString().slice(0, 10);
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="All_Students_Attendance_${safeSection}_${stamp}.csv"`);
+        res.send('\uFEFF' + buildCallListCsv(data.students));
+    } catch (err) {
+        res.status(500).json({ success: false, message: 'Unable to export attendance.' });
+    }
+});
+
+// Mentor dashboard overview: per-section stats for Today / Last 7 / Last 30 / a custom range.
+app.get('/api/mentor/overview', async (req, res) => {
+    try {
+        const sections = await getMentorSections(req.auth.user.id);
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+        let fromDate = validDate(req.query.from_date) ? req.query.from_date : '';
+        let toDate = validDate(req.query.to_date) ? req.query.to_date : '';
+        if (fromDate && toDate && fromDate > toDate) {
+            return res.status(400).json({ success: false, message: 'Invalid date range.' });
+        }
+        if (!fromDate && !toDate) {
+            fromDate = new Date(Date.now() - 6 * 24 * 60 * 60 * 1000)
+                .toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+            toDate = today;
+        } else if (fromDate && !toDate) {
+            toDate = today;
+        }
+
+        const cards = [];
+        for (const section of sections) {
+            const data = await buildSectionAttendance(section, { fromDate, toDate, threshold: ATTENDANCE_THRESHOLD });
+            const todaySessions = data.sessions.filter(session => session.date === today && !session.is_leisure);
+            const rangeSessions = data.sessions.filter(session => !session.is_leisure);
+            cards.push({
+                section_id: section.section_id,
+                branch_name: section.branch_name,
+                dept_name: section.dept_name,
+                batch_year_name: section.batch_year_name,
+                sec_name: section.sec_name,
+                total_students: data.summary.total_students,
+                conducted_sessions: data.summary.conducted_sessions,
+                conducted_days: data.summary.conducted_days,
+                average_attendance: data.summary.average_attendance,
+                below_threshold: data.summary.below_threshold,
+                threshold: data.summary.threshold,
+                today: {
+                    recorded: todaySessions.length > 0,
+                    sessions: todaySessions.length,
+                    present: todaySessions.reduce((sum, session) => sum + session.present_count, 0),
+                    absent: todaySessions.reduce((sum, session) => sum + session.absent_count, 0)
+                },
+                last_recorded_date: rangeSessions.length ? rangeSessions[0].date : null
+            });
+        }
+
+        res.json({
+            success: true,
+            mentor: { id: req.auth.user.id, name: req.auth.user.name, email: req.auth.user.email },
+            date: today,
+            range: { from_date: fromDate, to_date: toDate },
+            sections: cards
+        });
+    } catch (err) {
+        console.error('Mentor overview failed:', err);
+        res.status(500).json({ success: false, message: 'Unable to load your dashboard.' });
     }
 });
 
@@ -1076,7 +1280,7 @@ app.get('/api/cron/daily-call-list', async (req, res) => {
                 }
 
                 const body = data.absentees.length
-                    ? `Respected Mentor (${section.mentor_name}),\n\nDaily attendance summary for ${targetDate}.\n\nAbsentees today: ${data.absentees.length}\nHigh priority (daily attendance below ${ATTENDANCE_THRESHOLD}%): ${data.high_priority}\n\nAttendance % is calculated from complete days (present in all conducted hours), not hourly.\nHigh-priority absentees are listed first and marked HIGH in the CSV.\n\nAttached: attendance statement, classroom photo, and daily call-list CSV.`
+                    ? `Respected Mentor (${section.mentor_name}),\n\nDaily attendance summary for ${targetDate}.\n\nAbsentees today: ${data.absentees.length}\nHigh priority (daily attendance below ${ATTENDANCE_THRESHOLD}%): ${data.high_priority}\n\nAttendance % is calculated from days present out of conducted days: attending more than 50% of a day's sessions counts as a full day, up to 50% counts as half a day.\nHigh-priority absentees are listed first and marked HIGH in the CSV.\n\nAttached: attendance statement, classroom photo, and daily call-list CSV.`
                     : `Respected Mentor (${section.mentor_name}),\n\nDaily attendance summary for ${targetDate}.\n\nNo students were absent today.\n\nAttached: attendance statement and classroom photo.`;
 
                 await transporter.sendMail({
@@ -2012,6 +2216,7 @@ function drawSingleDoeSlip(doc, x, y, w, h, sectionInfo, date, hourSlot, session
 app.get('/doe', (req, res) => res.sendFile(path.join(__dirname, 'public', 'doe.html')));
 app.get('/admin', (req, res) => res.sendFile(path.join(__dirname, 'public', 'admin.html')));
 app.get('/mentor', (req, res) => res.sendFile(path.join(__dirname, 'public', 'mentor.html')));
+app.get('/mentor/setup', (req, res) => res.sendFile(path.join(__dirname, 'public', 'mentor-setup.html')));
 
 app.use((err, req, res, next) => {
     if (res.headersSent) return next(err);

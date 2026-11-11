@@ -232,7 +232,7 @@ test('daily call list is sent once with today absentees and complete-day percent
     assert.match(csv, /HIGH/);
     assert.match(csv, /0\.0/);
     assert.match(mail.text, /Absentees today: 1/);
-    assert.match(mail.text, /complete days/i);
+    assert.match(mail.text, /days present/i);
 
     const second = await request('/api/cron/daily-call-list?date=2026-10-31&secret=test-cron-secret');
     assert.equal(second.status, 200);
@@ -261,10 +261,11 @@ test('daily call list uses complete-day attendance, not hourly percentage', asyn
     const csvAttachment = mail.attachments.find(attachment => attachment.filename.endsWith('.csv'));
     assert.ok(csvAttachment);
     const csv = csvAttachment.content.toString();
-    // S002 attended 1 of 2 hours (50% hourly) but no complete day, so daily attendance is 0%.
+    // S002 attended 1 of 2 hours on 2026-11-01 (exactly 50% -> half day) and was
+    // fully absent on 2026-10-31, so daily attendance is 0.5 of 2 days = 25%.
     assert.match(csv, /S002/);
-    assert.match(csv, /0\.0/);
-    assert.doesNotMatch(csv, /50\.0/);
+    assert.match(csv, /25\.0/);
+    assert.match(csv, /0\.5/);
     assert.match(csv, /HIGH/);
     assert.doesNotMatch(csv, /S001/);
     assert.match(mail.text, /Absentees today: 1/);
