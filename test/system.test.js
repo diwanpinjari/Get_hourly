@@ -293,6 +293,20 @@ test('daily call list endpoint rejects callers without the cron secret', async (
     assert.equal((await request('/api/cron/daily-call-list?date=2026-10-31')).status, 401);
 });
 
+test('the first conducted hour email carries the below-threshold call list CSV', async () => {
+    const freshCookie = (await request('/api/login', 'POST', { faculty_id: 'F1', password: 'faculty-pass' }, null)).cookie;
+    assert.equal((await request('/api/attendance/submit', 'POST', { ...payload('Hour 1'), date: '2026-11-03' }, freshCookie)).status, 200);
+    let mail = messages.findLast(message => message.subject.includes('Attendance Statement + Photo'));
+    const csv = mail.attachments.find(attachment => attachment.filename === 'Call_List_2026-11-03.csv');
+    assert.ok(csv);
+    const lines = csv.content.toString().trim().split(/\r?\n/);
+    assert.ok(lines.some(line => line.includes('S002')));
+    assert.ok(!lines.some(line => line.includes('S001')));
+    assert.equal((await request('/api/attendance/submit', 'POST', { ...payload('Hour 2'), date: '2026-11-03' }, freshCookie)).status, 200);
+    mail = messages.findLast(message => message.subject.includes('(Hour 2)'));
+    assert.equal(mail.attachments.some(attachment => attachment.filename.endsWith('.csv')), false);
+});
+
 test('admin can set and change a mentor login password', async () => {
     const mentors = (await request('/api/admin/mentors')).data;
     const mentor = mentors.find(item => item.email === 'mentor@example.test');

@@ -1665,6 +1665,14 @@ app.post('/api/attendance/submit', async (req, res) => {
             return res.status(400).json({ success: false, message: "No mentor assigned to this section. Contact administrator." });
         }
 
+        // The first conducted hour of the day also carries a call-list CSV with
+        // below-threshold students and their overall day-based attendance.
+        const isFirstConductedHour = !(await get(db,
+            `SELECT id FROM attendance_logs
+             WHERE branch_id = ? AND dept_id = ? AND batch_year_id = ? AND section_id = ? AND date = ? AND status != 'Leisure' LIMIT 1`,
+            [classDetails.branch_id, classDetails.dept_id, classDetails.batch_year_id, classDetails.section_id, date]))
+            && !req.body.attendance.every(row => row.status === 'Leisure');
+
         try {
             await saveAttendance(db, req.body, submissionTime);
         } catch (writeError) {
@@ -1716,8 +1724,22 @@ app.post('/api/attendance/submit', async (req, res) => {
                 });
             }
 
-            // The call-list CSV is sent once per day by the daily summary job,
-            // not on every hourly submission.
+            if (isFirstConductedHour) {
+                try {
+                    const overall = await buildSectionAttendance(
+                        { branch_id: classDetails.branch_id, dept_id: classDetails.dept_id, batch_year_id: classDetails.batch_year_id, section_id: classDetails.section_id },
+                        { toDate: date, threshold: ATTENDANCE_THRESHOLD });
+                    mentorAttachments.push({
+                        filename: `Call_List_${date}.csv`,
+                        content: Buffer.from('\uFEFF' + buildCallListCsv(overall.students.filter(student => student.below_threshold)), 'utf8')
+                    });
+                } catch (csvError) {
+                    console.error('First-hour call list failed:', csvError.message);
+                }
+            }
+
+            // The full daily call list is still sent once per day by the daily
+            // summary job; later hours carry only the statement and photo.
             await transporter.sendMail({
                 from: '"ACE College Attendance" <no-reply@college.edu>',
                 to: sectionInfo.mentor_email,
